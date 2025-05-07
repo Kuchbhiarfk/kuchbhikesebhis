@@ -3,6 +3,7 @@ import json
 import os
 import asyncio
 import signal
+from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -17,6 +18,7 @@ from aiohttp import ClientSession
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError, DuplicateKeyError
+from flask import Flask
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +78,17 @@ except ServerSelectionTimeoutError as e:
     logger.error(f"Failed to connect to MongoDB: {e}")
     client = None
     db = None
+
+# Flask app
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return "Flask server running for Telegram bot! :)", 200
+
+def run_flask():
+    """Run Flask server."""
+    flask_app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # Load main bot data
 def get_main_bot_data():
@@ -875,7 +888,7 @@ async def main():
     main_app.add_handler(CommandHandler("addbot", add_bot))
     main_app.add_handler(CallbackQueryHandler(button))
     main_app.add_handler(broadcast_conv)
-    main_app.add_error_handler(error_handler)
+    main_app.add_handler(error_handler)
 
     added_bots_data = get_added_bot_data()
     for bot_token in list(added_bots_data.keys()):
@@ -898,7 +911,7 @@ async def main():
             app.add_handler(CommandHandler("setlinkmsg", set_link_msg))
             app.add_handler(CallbackQueryHandler(button))
             app.add_handler(broadcast_conv)
-            app.add_error_handler(error_handler)
+            app.add_handler(error_handler)
             await app.initialize()
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
@@ -947,6 +960,12 @@ def handle_shutdown(loop):
     loop.close()
 
 if __name__ == "__main__":
+    # Start Flask in a separate thread
+    flask_thread = Thread(target=run_flask)
+    flask_thread.daemon = True  # Allows program to exit even if Flask is running
+    flask_thread.start()
+
+    # Run Telegram bot in the main thread
     try:
         loop = asyncio.get_event_loop()
         if loop.is_closed():
