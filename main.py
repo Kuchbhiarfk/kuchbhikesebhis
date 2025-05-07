@@ -216,13 +216,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if is_main_bot:
         caption = (
             "<b>○𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐌𝐲 𝐅𝐫𝐢𝐞𝐧𝐝 !!</b>\n\n"
-            "<b>How to use? 🤔</b>\n"
             "<b>❀ Any Problem Contact Us :)</b>\n"
             "<b>♛ HACKHEIST - @HACKHEISTBOT</b>\n\n"
             "<b>𝐅𝐄𝐀𝐓𝐔𝐑𝐄𝐒 💀</b>\n"
-            "<i>1. You can add mutiple Channels\n\n</i>\n"
+            "<i>1. You can add mutiple Channels\n</i>"
             "<i>2. You Can Broadcast to Bots users + Channels which added with Broadcast Msg Delete feature 😁</i>\n\n"
-            "<b>For adding your Bot just send --> /addbot 123556:giecujwcv like this</b>\n\n"
+            "<b>For adding your Bot just send > /addbot 1256:giecujwcv like this</b>\n\n"
             "<b>✥ Code Design by HACKHEIST 😈</b>"
         )
         main_bot_data = get_main_bot_data()
