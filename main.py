@@ -1,9 +1,6 @@
 import logging
-import json
-import os
 import asyncio
 import signal
-from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -17,8 +14,7 @@ from telegram.ext import (
 from aiohttp import ClientSession
 from datetime import datetime, timedelta
 from pymongo import MongoClient
-from pymongo.errors import ServerSelectionTimeoutError, DuplicateKeyError
-from flask import Flask
+from pymongo.errors import ConnectionError
 
 # Configure logging
 logging.basicConfig(
@@ -31,7 +27,7 @@ logger = logging.getLogger(__name__)
 MAIN_BOT_TOKEN = '6811502626:AAG9xT3ZQUmg6CrdIPvQ0kCRJ3W5QL-fuZs'
 
 # Main bot owner ID
-MAIN_BOT_OWNER_ID = 5487643307  # Replace with your Telegram user ID (get from @userinfobot)
+MAIN_BOT_OWNER_ID = 123456789  # Replace with your Telegram user ID (get from @userinfobot)
 
 # MongoDB configuration
 MONGO_URL = "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority"
@@ -74,21 +70,10 @@ try:
     client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
     db = client[DB_NAME]
     client.server_info()  # Test connection
-except ServerSelectionTimeoutError as e:
+except ConnectionError as e:
     logger.error(f"Failed to connect to MongoDB: {e}")
     client = None
     db = None
-
-# Flask app
-flask_app = Flask(__name__)
-
-@flask_app.route('/')
-def home():
-    return "Flask server running for Telegram bot! :)", 200
-
-def run_flask():
-    """Run Flask server."""
-    flask_app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # Load main bot data
 def get_main_bot_data():
@@ -888,7 +873,7 @@ async def main():
     main_app.add_handler(CommandHandler("addbot", add_bot))
     main_app.add_handler(CallbackQueryHandler(button))
     main_app.add_handler(broadcast_conv)
-    main_app.add_handler(error_handler)
+    main_app.add_error_handler(error_handler)  # Fixed: Use add_error_handler
 
     added_bots_data = get_added_bot_data()
     for bot_token in list(added_bots_data.keys()):
@@ -911,7 +896,7 @@ async def main():
             app.add_handler(CommandHandler("setlinkmsg", set_link_msg))
             app.add_handler(CallbackQueryHandler(button))
             app.add_handler(broadcast_conv)
-            app.add_handler(error_handler)
+            app.add_error_handler(error_handler)  # Fixed: Use add_error_handler
             await app.initialize()
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
@@ -950,42 +935,25 @@ async def main():
         if client:
             client.close()
 
-def handle_shutdown(loop):
-    """Stop event loop."""
-    tasks = [task for task in asyncio.all_tasks(loop) if task is not asyncio.current_task()]
-    for task in tasks:
-        task.cancel()
-    loop.stop()
-    loop.run_until_complete(loop.shutdown_asyncgens())
-    loop.close()
-
 if __name__ == "__main__":
-    # Start Flask in a separate thread
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True  # Allows program to exit even if Flask is running
-    flask_thread.start()
+    # Create a new event loop explicitly to avoid DeprecationWarning
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    # Run Telegram bot in the main thread
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    def signal_handler(sig, frame):
+        tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        loop.stop()
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
 
-    def signal_handler():
-        handle_shutdown(loop)
-
-    try:
-        signal.signal(signal.SIGINT, lambda sig, frame: signal_handler())
-    except ValueError:
-        pass
+    signal.signal(signal.SIGINT, signal_handler)
 
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         pass
     finally:
-        handle_shutdown(loop)
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
