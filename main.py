@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Telegram Bot Token (main bot)
-MAIN_BOT_TOKEN = '6811502626:AAG9xT3ZQUmg6CrdIPvQ0kCRJ3W5QL-fuZs'
+MAIN_BOT_TOKEN = '7490132707:AAEtQQO3Rd3noe9_j9hUS44eMJ68heZ8e0Q'
 
 # Main bot owner ID
 MAIN_BOT_OWNER_ID = 5487643307  # Replace with your Telegram user ID (get from @userinfobot)
@@ -43,22 +43,18 @@ DEFAULT_EXPIRE_TIME = 30
 
 # Default start message for added bots
 DEFAULT_START_MSG = (
-    "<b>Welcome to your esteemed Bot! :)</b>\n\n"
-    "<b>Manage your channels here:</b>\n"
-    "<i>-> Use /addchannel to add channels</i>\n"
-    "<i>-> Use /removechannel to remove channels</i>\n"
-    "<i>-> Use /expiretime to set link expiration</i>\n"
-    "<i>-> Use /setstartmsg to customize this message</i>\n"
-    "<i>-> Use /setlinkmsg to customize the invite link message</i>\n"
-    "<i>-> Use /broadcast to send messages to users or channels</i>\n\n"
+    "<b>Welcome to Copyright Protector bot 🥰</b>\n\n"
+    "<b>Below Given channels link to join 😁</b>\n\n"
+    "<quote><b>𝐓𝐡𝐢𝐬 𝐁𝐨𝐭 𝐜𝐨𝐝𝐞 𝐦𝐚𝐝𝐞 𝐛𝐲 𝐇𝐀𝐂𝐊𝐇𝐄𝐈𝐒𝐓 😈</b></quote>\n\n"
+    "<i>☆ Create Same bot like this using</i> - <b>@HACKHEIST_PROTECTOR_BOT</b>"
     "{buttons}"
 )
 
 # Default link message
 DEFAULT_LINK_MSG = (
-    "<b>Hey,</b>\n"
+    "<b>Hello 👑,</b>\n"
     "Link to join your requested channel 👇\n\n"
-    "<a href='{link}'>CLICK ME :)</a>\n\n"
+    "<b><a href='{link}'>𝐂𝐋𝐈𝐂𝐊 𝐌𝐄 :)</a></b>\n\n"
     "<i>NOTE: Link expires in {expire_time} seconds. Join fast!</i>"
 )
 
@@ -183,7 +179,7 @@ async def preload_image():
     """Preload image to cache."""
     global IMAGE_CACHE
     if IMAGE_CACHE is None:
-        image_url = "https://i.ibb.co/nKY9gtx/x.jpg"
+        image_url = "https://i.ibb.co/W6d91vd/66f7961e.jpg"
         async with ClientSession() as session:
             try:
                 async with session.get(image_url, timeout=5) as response:
@@ -219,18 +215,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if is_main_bot:
         caption = (
-            "<b>:..｡o○Welcome buddy :):..:</b>\n\n"
-            "<b>Here you get Our All Channels Links 💀</b>\n\n"
+            "<b>○𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐌𝐲 𝐅𝐫𝐢𝐞𝐧𝐝 !!</b>\n\n"
             "<b>How to use? 🤔</b>\n"
-            "<i>-> Use /addchannel to add channels, then click buttons below to join :)</i>\n"
-            "<i>-> Use /removechannel to remove a channel</i>\n"
-            "<i>-> Use /expiretime to set link expiration time</i>\n"
-            "<i>-> Use /setlinkmsg to customize the invite link message</i>\n"
-            "<i>-> Use /broadcast to send messages to users or channels</i>\n\n"
             "<b>❀ Any Problem Contact Us :)</b>\n"
-            "<b>◇ DARK NIGHT - @ContactXBatman_bot</b>\n"
-            "<b>☆ JACK SPARROW - @Sparrowcosmos_bot</b>\n"
             "<b>♛ HACKHEIST - @HACKHEISTBOT</b>\n\n"
+            "<b>𝐅𝐄𝐀𝐓𝐔𝐑𝐄𝐒 💀</b>\n"
+            "<i>1. You can add mutiple Channels\n\n</i>\n"
+            "<i>2. You Can Broadcast to Bots users + Channels which added with Broadcast Msg Delete feature 😁</i>\n\n"
+            "<b>For adding your Bot just send --> /addbot 123556:giecujwcv like this</b>\n\n"
             "<b>✥ Code Design by HACKHEIST 😈</b>"
         )
         main_bot_data = get_main_bot_data()
@@ -561,7 +553,7 @@ async def add_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         bot_data['app'] = app
         upsert_added_bot_data(new_bot_token, bot_data)
         await update.message.reply_text(
-            f"Bot {bot_username} added successfully! Manage it with /start, /addchannel, /removechannel, /expiretime, /setstartmsg, /setlinkmsg, /broadcast.",
+            f"Bot {bot_username} added successfully! Manage it with /start (for bot check), /addchannel(1st make admin bot ), /removechannel, /expiretime(link expire time), /setstartmsg(Edit /start msg), /setlinkmsg(Edit link send msg), /broadcast",
             parse_mode='HTML'
         )
     except Exception as e:
