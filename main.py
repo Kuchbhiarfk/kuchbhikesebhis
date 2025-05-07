@@ -14,7 +14,7 @@ from telegram.ext import (
 from aiohttp import ClientSession
 from datetime import datetime, timedelta
 from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure  # Updated: Use ConnectionFailure
+from pymongo.errors import ConnectionFailure
 
 # Configure logging
 logging.basicConfig(
@@ -70,14 +70,14 @@ try:
     client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
     db = client[DB_NAME]
     client.server_info()  # Test connection
-except ConnectionFailure as e:  # Updated: Use ConnectionFailure
+except ConnectionFailure as e:
     logger.error(f"Failed to connect to MongoDB: {e}")
     client = None
     db = None
 
 # Load main bot data
 def get_main_bot_data():
-    if not db:
+    if db is None:  # Fixed: Explicit None check
         logger.error("MongoDB not connected, using default main bot data")
         return {
             'channels': {},
@@ -110,7 +110,7 @@ def get_main_bot_data():
 
 # Update main bot data
 def update_main_bot_data(data):
-    if not db:
+    if db is None:  # Fixed: Explicit None check
         logger.error("MongoDB not connected, cannot update main bot data")
         return
     try:
@@ -130,7 +130,7 @@ def update_main_bot_data(data):
 
 # Load added bot data
 def get_added_bot_data(bot_token=None):
-    if not db:
+    if db is None:  # Fixed: Explicit None check
         logger.error("MongoDB not connected, using empty added bots data")
         return {} if not bot_token else None
     try:
@@ -146,7 +146,7 @@ def get_added_bot_data(bot_token=None):
 
 # Upsert added bot data
 def upsert_added_bot_data(bot_token, data):
-    if not db:
+    if db is None:  # Fixed: Explicit None check
         logger.error("MongoDB not connected, cannot upsert added bot data")
         return
     try:
@@ -170,7 +170,7 @@ def upsert_added_bot_data(bot_token, data):
 
 # Delete added bot data
 def delete_added_bot_data(bot_token):
-    if not db:
+    if db is None:  # Fixed: Explicit None check
         logger.error("MongoDB not connected, cannot delete added bot data")
         return
     try:
