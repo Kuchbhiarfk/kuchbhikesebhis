@@ -40,15 +40,14 @@ DEFAULT_EXPIRE_TIME = 30
 # Default start message for main and added bots
 DEFAULT_START_MSG = (
             "<b>○𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐌𝐲 𝐅𝐫𝐢𝐞𝐧𝐝 !!</b>\n\n"
-            "<b>How to use? 🤔</b>\n"
             "<b>❀ Any Problem Contact Us :)</b>\n"
             "<b>♛ HACKHEIST - @HACKHEISTBOT</b>\n\n"
             "<b>𝐅𝐄𝐀𝐓𝐔𝐑𝐄𝐒 💀</b>\n"
-            "<i>1. You can add mutiple Channels\n\n</i>\n"
+            "<i>1. You can add mutiple Channels</i>\n"
             "<i>2. You Can Broadcast to Bots users + Channels which added with Broadcast Msg Delete feature 😁</i>\n\n"
             "<b>For adding your Bot just send --> /addbot 123556:giecujwcv like this</b>\n\n"
-            "<b>✥ Code Design by HACKHEIST 😈</b>\n"
-            "• Cloned by PROTECTOR"
+            "<b>✥ Code Design by HACKHEIST 😈</b>\n\n"
+            "<b> 𝐅𝐎𝐑 𝐒𝐀𝐌𝐄 𝐁𝐎𝐓 𝐂𝐋𝐎𝐍𝐄 - @HACKHEIST_PROTECTOR_BOT </b>"
 )
 
 # Default link message
@@ -208,8 +207,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         channels = bot_data.get('channels', {})
 
     # Ensure • Cloned by PROTECTOR is appended
-    if not caption.endswith("• Cloned by PROTECTOR"):
-        caption = f"{caption}\n• Cloned by PROTECTOR"
+    if not caption.endswith("𝐅𝐎𝐑 𝐒𝐀𝐌𝐄 𝐁𝐎𝐓 𝐂𝐋𝐎𝐍𝐄 - @HACKHEIST_PROTECTOR_BOT"):
+        caption = f"{caption}\n🌟 𝐅𝐎𝐑 𝐒𝐀𝐌𝐄 𝐁𝐎𝐓 𝐂𝐋𝐎𝐍𝐄 - @HACKHEIST_PROTECTOR_BOT"
 
     reply_markup = None
     if channels:
