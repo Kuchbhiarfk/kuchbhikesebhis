@@ -1,0 +1,7 @@
+python-telegram-bot==20.0
+aiohttp
+Pillow
+Flask==2.0.3
+Werkzeug==2.0.3
+requests==2.26.0
+pymongo
