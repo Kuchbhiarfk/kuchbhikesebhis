@@ -45,9 +45,8 @@ DEFAULT_START_MSG = (
             "<b>𝐅𝐄𝐀𝐓𝐔𝐑𝐄𝐒 💀</b>\n"
             "<i>1. You can add mutiple Channels</i>\n"
             "<i>2. You Can Broadcast to Bots users + Channels which added with Broadcast Msg Delete feature 😁</i>\n\n"
-            "<b>For adding your Bot just send --> /addbot 123556:giecujwcv like this</b>\n\n"
+            "<b>For adding your Bot just send > /addbot 1556:giecujwcv like this</b>\n\n"
             "<b>✥ Code Design by HACKHEIST 😈</b>\n\n"
-            "<b> 𝐅𝐎𝐑 𝐒𝐀𝐌𝐄 𝐁𝐎𝐓 𝐂𝐋𝐎𝐍𝐄 - @HACKHEIST_PROTECTOR_BOT </b>"
 )
 
 # Default link message
