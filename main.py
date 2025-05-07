@@ -11,7 +11,6 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from aiohttp import ClientSession
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
@@ -35,19 +34,21 @@ DB_NAME = "telegram_bot"
 MAIN_COLLECTION = "main_bot_data"
 ADDED_BOTS_COLLECTION = "added_bots_data"
 
-# Cache for image data
-IMAGE_CACHE = None
-
 # Default expiration time (in seconds)
 DEFAULT_EXPIRE_TIME = 30
 
-# Default start message for added bots
+# Default start message for main and added bots
 DEFAULT_START_MSG = (
-    "<b>Welcome to Copyright Protector bot 🥰</b>\n\n"
-    "<b>Below Given channels link to join 😁</b>\n\n"
-    "<quote><b>𝐓𝐡𝐢𝐬 𝐁𝐨𝐭 𝐜𝐨𝐝𝐞 𝐦𝐚𝐝𝐞 𝐛𝐲 𝐇𝐀𝐂𝐊𝐇𝐄𝐈𝐒𝐓 😈</b></quote>\n\n"
-    "<i>☆ Create Same bot like this using</i> - <b>@HACKHEIST_PROTECTOR_BOT</b>"
-    "{buttons}"
+            "<b>○𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐌𝐲 𝐅𝐫𝐢𝐞𝐧𝐝 !!</b>\n\n"
+            "<b>How to use? 🤔</b>\n"
+            "<b>❀ Any Problem Contact Us :)</b>\n"
+            "<b>♛ HACKHEIST - @HACKHEISTBOT</b>\n\n"
+            "<b>𝐅𝐄𝐀𝐓𝐔𝐑𝐄𝐒 💀</b>\n"
+            "<i>1. You can add mutiple Channels\n\n</i>\n"
+            "<i>2. You Can Broadcast to Bots users + Channels which added with Broadcast Msg Delete feature 😁</i>\n\n"
+            "<b>For adding your Bot just send --> /addbot 123556:giecujwcv like this</b>\n\n"
+            "<b>✥ Code Design by HACKHEIST 😈</b>\n"
+            "• Cloned by PROTECTOR"
 )
 
 # Default link message
@@ -73,11 +74,12 @@ except ConnectionFailure as e:
 
 # Load main bot data
 def get_main_bot_data():
-    if db is None:  # Fixed: Explicit None check
+    if db is None:  # Explicit None check
         logger.error("MongoDB not connected, using default main bot data")
         return {
             'channels': {},
             'expire_time': DEFAULT_EXPIRE_TIME,
+            'start_msg': DEFAULT_START_MSG,
             'link_msg': DEFAULT_LINK_MSG,
             'user_ids': []
         }
@@ -89,6 +91,7 @@ def get_main_bot_data():
                 '_id': "main",
                 'channels': {},
                 'expire_time': DEFAULT_EXPIRE_TIME,
+                'start_msg': DEFAULT_START_MSG,
                 'link_msg': DEFAULT_LINK_MSG,
                 'user_ids': []
             }
@@ -100,13 +103,14 @@ def get_main_bot_data():
         return {
             'channels': {},
             'expire_time': DEFAULT_EXPIRE_TIME,
+            'start_msg': DEFAULT_START_MSG,
             'link_msg': DEFAULT_LINK_MSG,
             'user_ids': []
         }
 
 # Update main bot data
 def update_main_bot_data(data):
-    if db is None:  # Fixed: Explicit None check
+    if db is None:  # Explicit None check
         logger.error("MongoDB not connected, cannot update main bot data")
         return
     try:
@@ -116,6 +120,7 @@ def update_main_bot_data(data):
             {"$set": {
                 'channels': data.get('channels', {}),
                 'expire_time': data.get('expire_time', DEFAULT_EXPIRE_TIME),
+                'start_msg': data.get('start_msg', DEFAULT_START_MSG),
                 'link_msg': data.get('link_msg', DEFAULT_LINK_MSG),
                 'user_ids': data.get('user_ids', [])
             }},
@@ -126,7 +131,7 @@ def update_main_bot_data(data):
 
 # Load added bot data
 def get_added_bot_data(bot_token=None):
-    if db is None:  # Fixed: Explicit None check
+    if db is None:  # Explicit None check
         logger.error("MongoDB not connected, using empty added bots data")
         return {} if not bot_token else None
     try:
@@ -142,7 +147,7 @@ def get_added_bot_data(bot_token=None):
 
 # Upsert added bot data
 def upsert_added_bot_data(bot_token, data):
-    if db is None:  # Fixed: Explicit None check
+    if db is None:  # Explicit None check
         logger.error("MongoDB not connected, cannot upsert added bot data")
         return
     try:
@@ -166,7 +171,7 @@ def upsert_added_bot_data(bot_token, data):
 
 # Delete added bot data
 def delete_added_bot_data(bot_token):
-    if db is None:  # Fixed: Explicit None check
+    if db is None:  # Explicit None check
         logger.error("MongoDB not connected, cannot delete added bot data")
         return
     try:
@@ -175,28 +180,8 @@ def delete_added_bot_data(bot_token):
     except Exception as e:
         logger.error(f"Failed to delete added bot data: {e}")
 
-async def preload_image():
-    """Preload image to cache."""
-    global IMAGE_CACHE
-    if IMAGE_CACHE is None:
-        image_url = "https://i.ibb.co/W6d91vd/66f7961e.jpg"
-        async with ClientSession() as session:
-            try:
-                async with session.get(image_url, timeout=5) as response:
-                    if response.status == 200:
-                        IMAGE_CACHE = await response.read()
-                        logger.info("Image preloaded successfully")
-                    else:
-                        logger.error(f"Failed to preload image: HTTP {response.status}")
-            except Exception as e:
-                logger.error(f"Image preload failed: {e}")
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
-    if IMAGE_CACHE is None:
-        await update.message.reply_text("Image not available. Please try again later.")
-        return
-
     bot_token = context.bot.token
     is_main_bot = bot_token == MAIN_BOT_TOKEN
     user_id = update.effective_user.id
@@ -214,22 +199,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             upsert_added_bot_data(bot_token, bot_data)
 
     if is_main_bot:
-        caption = (
-            "<b>○𝐖𝐞𝐥𝐜𝐨𝐦𝐞 𝐌𝐲 𝐅𝐫𝐢𝐞𝐧𝐝 !!</b>\n\n"
-            "<b>❀ Any Problem Contact Us :)</b>\n"
-            "<b>♛ HACKHEIST - @HACKHEISTBOT</b>\n\n"
-            "<b>𝐅𝐄𝐀𝐓𝐔𝐑𝐄𝐒 💀</b>\n"
-            "<i>1. You can add mutiple Channels\n</i>"
-            "<i>2. You Can Broadcast to Bots users + Channels which added with Broadcast Msg Delete feature 😁</i>\n\n"
-            "<b>For adding your Bot just send > /addbot 1256:giecujwcv like this</b>\n\n"
-            "<b>✥ Code Design by HACKHEIST 😈</b>"
-        )
         main_bot_data = get_main_bot_data()
+        caption = main_bot_data.get('start_msg', DEFAULT_START_MSG)
         channels = main_bot_data.get('channels', {})
     else:
         bot_data = get_added_bot_data(bot_token) or {}
         caption = bot_data.get('start_msg', DEFAULT_START_MSG)
         channels = bot_data.get('channels', {})
+
+    # Ensure • Cloned by PROTECTOR is appended
+    if not caption.endswith("• Cloned by PROTECTOR"):
+        caption = f"{caption}\n• Cloned by PROTECTOR"
 
     reply_markup = None
     if channels:
@@ -238,19 +218,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not is_main_bot and '{buttons}' in caption:
             caption = caption.replace('{buttons}', '')
         elif not is_main_bot:
-            caption += "\n\n<b>Channels:</b>\n{buttons}"
+            caption = caption.replace('{buttons}', '<b>Channels:</b>')
 
     try:
-        await update.message.reply_photo(
-            photo=IMAGE_CACHE,
-            caption=caption,
+        await update.message.reply_text(
+            caption,
             parse_mode='HTML',
             reply_markup=reply_markup,
-            protect_content=True
+            disable_web_page_preview=True
         )
     except Exception as e:
-        logger.error(f"Failed to send photo: {e}")
-        await update.message.reply_text("Error sending image. Please try again.")
+        logger.error(f"Failed to send start message: {e}")
+        await update.message.reply_text("Error sending message. Please try again.", parse_mode='HTML')
+
+async def set_start_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /setstartmsg command for main and added bots."""
+    bot_token = context.bot.token
+    user_id = update.effective_user.id
+    is_main_bot = bot_token == MAIN_BOT_TOKEN
+
+    if is_main_bot and user_id != MAIN_BOT_OWNER_ID:
+        await update.message.reply_text("Only the main bot owner can set the start message.", parse_mode='HTML')
+        return
+    if not is_main_bot:
+        bot_data = get_added_bot_data(bot_token)
+        if not bot_data or bot_data.get('who_added') != user_id:
+            await update.message.reply_text("Only the bot owner can set the start message.", parse_mode='HTML')
+            return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Use format: /setstartmsg <message>\nUse {buttons} to include channel buttons.\nNote: '• Cloned by PROTECTOR' will be appended.",
+            parse_mode='HTML'
+        )
+        return
+
+    message = ' '.join(context.args)
+    if len(message) > 4000:  # Reserve space for PROTECTOR message
+        await update.message.reply_text(
+            "Message is too long. Keep it under 4000 characters to allow for '• Cloned by PROTECTOR'.",
+            parse_mode='HTML'
+        )
+        return
+
+    # Append the required message
+    message = f"{message}\n• Cloned by PROTECTOR"
+
+    if is_main_bot:
+        main_bot_data = get_main_bot_data()
+        main_bot_data['start_msg'] = message
+        update_main_bot_data(main_bot_data)
+    else:
+        bot_data = get_added_bot_data(bot_token)
+        bot_data['start_msg'] = message
+        upsert_added_bot_data(bot_token, bot_data)
+
+    await update.message.reply_text(
+        "Start message updated successfully. Use /start to preview.",
+        parse_mode='HTML'
+    )
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start broadcast conversation."""
@@ -707,42 +733,6 @@ async def set_expire_time(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode='HTML'
         )
 
-async def set_start_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /setstartmsg command."""
-    bot_token = context.bot.token
-    user_id = update.effective_user.id
-
-    if bot_token == MAIN_BOT_TOKEN:
-        await update.message.reply_text("This command is only available for added bots.", parse_mode='HTML')
-        return
-
-    bot_data = get_added_bot_data(bot_token)
-    if not bot_data or bot_data.get('who_added') != user_id:
-        await update.message.reply_text("Only the bot owner can set the start message.", parse_mode='HTML')
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "Use format: /setstartmsg <message>\nUse {buttons} to include channel buttons.",
-            parse_mode='HTML'
-        )
-        return
-
-    message = ' '.join(context.args)
-    if len(message) > 4096:
-        await update.message.reply_text(
-            "Message is too long. Keep it under 4096 characters.",
-            parse_mode='HTML'
-        )
-        return
-
-    bot_data['start_msg'] = message
-    upsert_added_bot_data(bot_token, bot_data)
-    await update.message.reply_text(
-        "Start message updated successfully. Use /start to preview.",
-        parse_mode='HTML'
-    )
-
 async def set_link_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /setlinkmsg command."""
     bot_token = context.bot.token
@@ -844,8 +834,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def main():
     """Run main bot and added bots."""
-    await preload_image()
-
     main_app = ApplicationBuilder().token(MAIN_BOT_TOKEN).build()
     broadcast_conv = ConversationHandler(
         entry_points=[CommandHandler("broadcast", broadcast_start)],
@@ -860,6 +848,7 @@ async def main():
     main_app.add_handler(CommandHandler("addchannel", add_channel))
     main_app.add_handler(CommandHandler("removechannel", remove_channel))
     main_app.add_handler(CommandHandler("expiretime", set_expire_time))
+    main_app.add_handler(CommandHandler("setstartmsg", set_start_msg))
     main_app.add_handler(CommandHandler("setlinkmsg", set_link_msg))
     main_app.add_handler(CommandHandler("addbot", add_bot))
     main_app.add_handler(CallbackQueryHandler(button))
