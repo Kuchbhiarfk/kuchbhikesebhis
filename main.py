@@ -14,7 +14,7 @@ from telegram.ext import (
 from aiohttp import ClientSession
 from datetime import datetime, timedelta
 from pymongo import MongoClient
-from pymongo.errors import ConnectionError
+from pymongo.errors import ConnectionFailure  # Updated: Use ConnectionFailure
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 MAIN_BOT_TOKEN = '6811502626:AAG9xT3ZQUmg6CrdIPvQ0kCRJ3W5QL-fuZs'
 
 # Main bot owner ID
-MAIN_BOT_OWNER_ID = 123456789  # Replace with your Telegram user ID (get from @userinfobot)
+MAIN_BOT_OWNER_ID = 5487643307  # Replace with your Telegram user ID (get from @userinfobot)
 
 # MongoDB configuration
 MONGO_URL = "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority"
@@ -70,7 +70,7 @@ try:
     client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
     db = client[DB_NAME]
     client.server_info()  # Test connection
-except ConnectionError as e:
+except ConnectionFailure as e:  # Updated: Use ConnectionFailure
     logger.error(f"Failed to connect to MongoDB: {e}")
     client = None
     db = None
@@ -873,7 +873,7 @@ async def main():
     main_app.add_handler(CommandHandler("addbot", add_bot))
     main_app.add_handler(CallbackQueryHandler(button))
     main_app.add_handler(broadcast_conv)
-    main_app.add_error_handler(error_handler)  # Fixed: Use add_error_handler
+    main_app.add_error_handler(error_handler)
 
     added_bots_data = get_added_bot_data()
     for bot_token in list(added_bots_data.keys()):
@@ -896,7 +896,7 @@ async def main():
             app.add_handler(CommandHandler("setlinkmsg", set_link_msg))
             app.add_handler(CallbackQueryHandler(button))
             app.add_handler(broadcast_conv)
-            app.add_error_handler(error_handler)  # Fixed: Use add_error_handler
+            app.add_error_handler(error_handler)
             await app.initialize()
             await app.start()
             await app.updater.start_polling(drop_pending_updates=True)
@@ -936,7 +936,7 @@ async def main():
             client.close()
 
 if __name__ == "__main__":
-    # Create a new event loop explicitly to avoid DeprecationWarning
+    # Create a new event loop explicitly
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
