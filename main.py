@@ -16,15 +16,14 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 from bson.int64 import Int64
 
-# Load environment variables (set in Render dashboard)
+# Load environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7931405874:AAGodglFGX3zOG49z5dxMff_GpaNLgxZ9OE")
 OWNER_ID = int(os.getenv("OWNER_ID", 5487643307))
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority")
 DB_NAME = os.getenv("DB_NAME", "Cluster0")
 
-# In-memory storage for batch requests (temporary)
+# In-memory storage
 batch_storage = {}
-# In-memory storage for force-subscribe invite links (temporary)
 FORCE_SUB_INVITE_LINKS = {}
 
 def init_db():
@@ -201,7 +200,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     caption_template = logs["caption_template"]
 
     if args:
-        # Check if user is subscribed to all force-subscribe channels
         if not force_sub_channel_ids:
             await update.message.reply_text(
                 "<b>⚠️ No Force-Subscribe Channels</b>\n<i>Please contact the bot owner to set up force-subscribe channels.</i>",
@@ -268,7 +266,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
 
-        # User is subscribed; process batch link
         if args[0].startswith("batch_"):
             batch_id = args[0].replace("batch_", "")
             if batch_id in batch_storage:
@@ -559,122 +556,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_data.clear()
         return
 
-    if user_data.get("state") == "awaiting_broadcast_message":
-        if user_id != OWNER_ID:
-            await message.reply_text(
-                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
-                parse_mode="HTML",
-                protect_content=protect_content
-            )
-            user_data.clear()
-            return
-
-        user_data["broadcast_message"] = message
-        await message.reply_text(
-            "<b>⏰ Set Deletion Time</b>\n<i>Please send the time (in seconds) after which the broadcast message should be deleted (e.g., 30).</i>",
-            parse_mode="HTML",
-            protect_content=protect_content
-        )
-        user_data["state"] = "awaiting_broadcast_time"
-        return
-
-    if user_data.get("state") == "awaiting_broadcast_time":
-        if user_id != OWNER_ID:
-            await message.reply_text(
-                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
-                parse_mode="HTML",
-                protect_content=protect_content
-            )
-            user_data.clear()
-            return
-
-        try:
-            delete_after = int(text)
-            if delete_after <= 0:
-                raise ValueError("Time must be positive")
-        except ValueError:
-            await message.reply_text(
-                "<b>❌ Invalid Time</b>\n<i>Please send a valid number of seconds (e.g., 30).</i>",
-                parse_mode="HTML",
-                protect_content=protect_content
-            )
-            return
-
-        broadcast_message = user_data["broadcast_message"]
-        sent_successfully = 0
-        blocked = 0
-        message_ids = {}
-
-        for user in db.users.find({"ban_status.is_banned": False}):
-            uid = user["id"]
-            try:
-                if broadcast_message.text:
-                    sent_message = await context.bot.send_message(
-                        chat_id=uid,
-                        text=broadcast_message.text,
-                        parse_mode="HTML" if broadcast_message.text else None,
-                        protect_content=protect_content
-                    )
-                elif broadcast_message.photo:
-                    sent_message = await context.bot.send_photo(
-                        chat_id=uid,
-                        photo=broadcast_message.photo[-1].file_id,
-                        caption=broadcast_message.caption,
-                        parse_mode="HTML" if broadcast_message.caption else None,
-                        protect_content=protect_content
-                    )
-                elif broadcast_message.video:
-                    sent_message = await context.bot.send_video(
-                        chat_id=uid,
-                        video=broadcast_message.video.file_id,
-                        caption=broadcast_message.caption,
-                        parse_mode="HTML" if broadcast_message.caption else None,
-                        protect_content=protect_content
-                    )
-                elif broadcast_message.sticker:
-                    sent_message = await context.bot.send_sticker(
-                        chat_id=uid,
-                        sticker=broadcast_message.sticker.file_id,
-                        protect_content=protect_content
-                    )
-                else:
-                    await message.reply_text(
-                        "<b>❌ Unsupported Message Type</b>\n<i>Only text, photo, video, or sticker messages are supported.</i>",
-                        parse_mode="HTML",
-                        protect_content=protect_content
-                    )
-                    user_data.clear()
-                    return
-
-                sent_successfully += 1
-                message_ids[uid] = sent_message.message_id
-            except TelegramError as e:
-                if "blocked by user" in str(e).lower() or "chat not found" in str(e).lower():
-                    blocked += 1
-                else:
-                    await message.reply_text(
-                        f"<b>⚠️ Warning</b>\n<i>Failed to send to user <code>{uid}</code>: <code>{e}</code></i>",
-                        parse_mode="HTML",
-                        protect_content=protect_content
-                    )
-
-        await asyncio.sleep(delete_after)
-        for uid, msg_id in message_ids.items():
-            try:
-                await context.bot.delete_message(chat_id=uid, message_id=msg_id)
-            except TelegramError:
-                pass
-
-        total_users = db.users.count_documents({"ban_status.is_banned": False})
-        await message.reply_text(
-            f"<b>📊 Data be like</b>\n"
-            f"<b>Total users:</b> <code>{total_users}</code>\n"
-            f"<b>Successfull sent:</b> <code>{sent_successfully}</code>\n"
-            f"<b>Blocked bot:</b> <code>{blocked}</code>",
-            parse_mode="HTML",
-            protect_content=protect_content
-        )
-        user_data.clear()
+    if user_data.get("state") in ["awaiting_broadcast_message", "awaiting_broadcast_time"]:
+        await handle_broadcast_message(update, context)
         return
 
     if user_data.get("state") == "awaiting_caption_template":
@@ -957,12 +840,10 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Run the bot."""
-    # Initialize MongoDB
     db = init_db()
     application = Application.builder().token(BOT_TOKEN).build()
-    application.bot_data["db"] = db  # Store db in bot_data
+    application.bot_data["db"] = db
 
-    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("auto_delete_msg", auto_delete_msg))
     application.add_handler(CommandHandler("protect_content", protect_content))
@@ -974,7 +855,6 @@ def main():
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
 
-    # Run polling (let python-telegram-bot manage the event loop)
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
