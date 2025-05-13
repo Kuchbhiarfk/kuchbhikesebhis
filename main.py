@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 import base64
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import (
     Application,
@@ -15,26 +16,23 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 from bson.int64 import Int64
 
-# Bot token (store securely in production, e.g., in .env)
-BOT_TOKEN = "7940443271:AAHaBVuFNUEgz4L2ptnSHtdvfQ2sOd0cANs"
-# Owner ID
-OWNER_ID = 5487643307
-# MongoDB connection (replace with your URI, store securely)
-MONGODB_URI = "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority"
-# Database name (replace with your actual database name)
-DB_NAME = "Cluster0"
-# In-memory storage for batch requests (temporary, not stored in MongoDB)
+# Load environment variables (set in Render dashboard)
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7931405874:AAGodglFGX3zOG49z5dxMff_GpaNLgxZ9OE")
+OWNER_ID = int(os.getenv("OWNER_ID", 5487643307))
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority")
+DB_NAME = os.getenv("DB_NAME", "Cluster0")
+
+# In-memory storage for batch requests (temporary)
 batch_storage = {}
 # In-memory storage for force-subscribe invite links (temporary)
 FORCE_SUB_INVITE_LINKS = {}
 
-async def init_db():
+def init_db():
     """Initialize MongoDB connection and ensure logs collection has a document."""
     try:
-        client = MongoClient(MONGODB_URI)
+        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
         db = client[DB_NAME]
         logs_collection = db.logs
-        # Check if logs document exists; if not, create with defaults
         if logs_collection.count_documents({}) == 0:
             logs_collection.insert_one({
                 "force_sub_channel_ids": [],
@@ -45,7 +43,6 @@ async def init_db():
             })
         return db
     except Exception as e:
-        # Log to owner (can't use bot yet, so print for debugging)
         print(f"MongoDB Connection Error: {e}")
         raise
 
@@ -608,7 +605,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         blocked = 0
         message_ids = {}
 
-        # Broadcast to non-banned users
         for user in db.users.find({"ban_status.is_banned": False}):
             uid = user["id"]
             try:
@@ -779,7 +775,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif user_data.get("state") == "awaiting_channel_ids":
         if user_id != OWNER_ID:
             await message.reply_text(
-                "<b>👮‍♂️ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
+                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
                 parse_mode="HTML",
                 protect_content=protect_content
             )
@@ -959,37 +955,27 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         except TelegramError:
             pass
 
-async def main() -> None:
-    """Run the bot with explicit event loop management."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        # Initialize MongoDB
-        db = await init_db()
-        application = Application.builder().token(BOT_TOKEN).build()
-        application.bot_data["db"] = db  # Store db in bot_data for access in handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("auto_delete_msg", auto_delete_msg))
-        application.add_handler(CommandHandler("protect_content", protect_content))
-        application.add_handler(CommandHandler("broadcast", broadcast))
-        application.add_handler(CommandHandler("new_caption", new_caption))
-        application.add_handler(CommandHandler("set_force_sub_ids", set_force_sub_ids))
-        application.add_handler(CommandHandler("set_channel_ids", set_channel_ids))
-        application.add_handler(CommandHandler("batch", batch))
-        application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
-        application.add_error_handler(error_handler)
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
-    except Exception as e:
-        try:
-            await application.bot.send_message(
-                chat_id=OWNER_ID,
-                text=f"<b>⚠️ Startup Error</b>\n<i>Failed to start bot: <code>{e}</code></i>",
-                parse_mode="HTML"
-            )
-        except:
-            print(f"Startup Error: {e}")
-    finally:
-        loop.close()
+def main():
+    """Run the bot."""
+    # Initialize MongoDB
+    db = init_db()
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.bot_data["db"] = db  # Store db in bot_data
+
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("auto_delete_msg", auto_delete_msg))
+    application.add_handler(CommandHandler("protect_content", protect_content))
+    application.add_handler(CommandHandler("broadcast", broadcast))
+    application.add_handler(CommandHandler("new_caption", new_caption))
+    application.add_handler(CommandHandler("set_force_sub_ids", set_force_sub_ids))
+    application.add_handler(CommandHandler("set_channel_ids", set_channel_ids))
+    application.add_handler(CommandHandler("batch", batch))
+    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    application.add_error_handler(error_handler)
+
+    # Run polling (let python-telegram-bot manage the event loop)
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
