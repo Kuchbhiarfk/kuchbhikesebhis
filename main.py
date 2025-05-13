@@ -16,7 +16,7 @@ from bson.objectid import ObjectId
 from bson.int64 import Int64
 
 # Bot token (store securely in production, e.g., in .env)
-BOT_TOKEN = "7940443271:AAGrMC3LihSCU79RjFKMxfp6z9zUP35LdHc"
+BOT_TOKEN = "7940443271:AAHaBVuFNUEgz4L2ptnSHtdvfQ2sOd0cANs"
 # Owner ID
 OWNER_ID = 5487643307
 # MongoDB connection (replace with your URI, store securely)
