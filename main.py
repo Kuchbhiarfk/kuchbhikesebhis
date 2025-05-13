@@ -111,6 +111,172 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     context.user_data["state"] = "awaiting_broadcast_message"
 
+async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process the broadcast message and send to all non-banned users."""
+    user_data = context.user_data
+    user_id = update.effective_user.id
+    message = update.message
+    db = context.bot_data["db"]
+    protect_content = db.logs.find_one({})["protect_content"]
+
+    if user_data.get("state") == "awaiting_broadcast_message":
+        if user_id != OWNER_ID:
+            await message.reply_text(
+                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
+                parse_mode="HTML",
+                protect_content=protect_content
+            )
+            user_data.clear()
+            return
+
+        user_data["broadcast_message"] = message
+        await message.reply_text(
+            "<b>⏰ Set Deletion Time</b>\n<i>Please send the time (in seconds) after which the broadcast message should be deleted (e.g., 30).</i>",
+            parse_mode="HTML",
+            protect_content=protect_content
+        )
+        user_data["state"] = "awaiting_broadcast_time"
+        return
+
+    if user_data.get("state") == "awaiting_broadcast_time":
+        if user_id != OWNER_ID:
+            await message.reply_text(
+                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
+                parse_mode="HTML",
+                protect_content=protect_content
+            )
+            user_data.clear()
+            return
+
+        text = message.text.strip() if message.text else ""
+        try:
+            delete_after = int(text)
+            if delete_after <= 0:
+                raise ValueError("Time must be positive")
+        except ValueError:
+            await message.reply_text(
+                "<b>❌ Invalid Time</b>\n<i>Please send a valid number of seconds (e.g., 30).</i>",
+                parse_mode="HTML",
+                protect_content=protect_content
+            )
+            return
+
+        broadcast_message = user_data["broadcast_message"]
+        sent_successfully = 0
+        blocked = 0
+        failed = 0
+        message_ids = {}
+        failed_users = []
+
+        # Fetch all non-banned users
+        users = list(db.users.find({"ban_status.is_banned": False}))
+        total_users = len(users)
+        if total_users == 0:
+            await message.reply_text(
+                "<b>⚠️ No Users</b>\n<i>No non-banned users found in the database.</i>",
+                parse_mode="HTML",
+                protect_content=protect_content
+            )
+            user_data.clear()
+            return
+
+        for user in users:
+            uid = int(user["id"])  # Convert NumberLong to int
+            try:
+                if broadcast_message.text:
+                    sent_message = await context.bot.send_message(
+                        chat_id=uid,
+                        text=broadcast_message.text,
+                        parse_mode="HTML" if broadcast_message.text else None,
+                        protect_content=protect_content
+                    )
+                elif broadcast_message.photo:
+                    sent_message = await context.bot.send_photo(
+                        chat_id=uid,
+                        photo=broadcast_message.photo[-1].file_id,
+                        caption=broadcast_message.caption,
+                        parse_mode="HTML" if broadcast_message.caption else None,
+                        protect_content=protect_content
+                    )
+                elif broadcast_message.video:
+                    sent_message = await context.bot.send_video(
+                        chat_id=uid,
+                        video=broadcast_message.video.file_id,
+                        caption=broadcast_message.caption,
+                        parse_mode="HTML" if broadcast_message.caption else None,
+                        protect_content=protect_content
+                    )
+                elif broadcast_message.sticker:
+                    sent_message = await context.bot.send_sticker(
+                        chat_id=uid,
+                        sticker=broadcast_message.sticker.file_id,
+                        protect_content=protect_content
+                    )
+                else:
+                    await message.reply_text(
+                        "<b>❌ Unsupported Message Type</b>\n<i>Only text, photo, video, or sticker messages are supported.</i>",
+                        parse_mode="HTML",
+                        protect_content=protect_content
+                    )
+                    user_data.clear()
+                    return
+
+                sent_successfully += 1
+                message_ids[uid] = sent_message.message_id
+                await asyncio.sleep(0.1)  # Small delay to avoid rate limits
+            except TelegramError as e:
+                if "blocked by user" in str(e).lower() or "chat not found" in str(e).lower():
+                    blocked += 1
+                else:
+                    failed += 1
+                    failed_users.append((uid, str(e)))
+                # Log failure to owner
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"<b>⚠️ Broadcast Failure</b>\n<i>User <code>{uid}</code>: <code>{e}</code></i>",
+                    parse_mode="HTML",
+                    protect_content=protect_content
+                )
+
+        # Delete messages after delay
+        await asyncio.sleep(delete_after)
+        deleted = 0
+        for uid, msg_id in message_ids.items():
+            try:
+                await context.bot.delete_message(chat_id=uid, message_id=msg_id)
+                deleted += 1
+            except TelegramError as e:
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"<b>⚠️ Deletion Failure</b>\n<i>User <code>{uid}</code>, Message <code>{msg_id}</code>: <code>{e}</code></i>",
+                    parse_mode="HTML",
+                    protect_content=protect_content
+                )
+
+        # Send summary
+        feedback = [
+            f"<b>📊 Broadcast Summary</b>",
+            f"<b>Total users:</b> <code>{total_users}</code>",
+            f"<b>Successfully sent:</b> <code>{sent_successfully}</code>",
+            f"<b>Blocked or invalid:</b> <code>{blocked}</code>",
+            f"<b>Other failures:</b> <code>{failed}</code>",
+            f"<b>Deleted:</b> <code>{deleted}</code>"
+        ]
+        if failed_users:
+            feedback.append("<b>Failed Users:</b>")
+            for uid, error in failed_users[:5]:  # Limit to 5 for brevity
+                feedback.append(f"<i>User <code>{uid}</code>: <code>{error}</code></i>")
+            if len(failed_users) > 5:
+                feedback.append(f"<i>...and {len(failed_users) - 5} more</i>")
+
+        await message.reply_text(
+            "\n".join(feedback),
+            parse_mode="HTML",
+            protect_content=protect_content
+        )
+        user_data.clear()
+        return
+
 async def new_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /new_caption command to set custom caption template (owner-only)."""
     user_id = update.effective_user.id
