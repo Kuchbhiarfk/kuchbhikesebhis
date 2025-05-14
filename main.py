@@ -21,11 +21,11 @@ OWNER_ID = 5487643307
 # MongoDB connection (replace with your Cluster0 URI)
 MONGODB_URI = "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority"  # e.g., mongodb+srv://username:password@cluster0.mongodb.net/telegram_bot?retryWrites=true&w=majority
 DB_NAME = "Cluster0"  # Adjust to your database name
-# In-memory storage for batch requests (use a database in production for legacy batch_ links)
+# In-memory storage for batch requests (use a database in production for persistence)
 batch_storage = {}
 # In-memory storage for force-subscribe invite links (persisted in MongoDB)
 FORCE_SUB_INVITE_LINKS = {}
-PROTECT_CONTENT = False
+
 # MongoDB client
 try:
     client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
@@ -597,7 +597,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         blocked = 0
         message_ids = {}
 
-        # Fetch all user IDs from users collection
         user_ids = [user["_id"] for user in users_collection.find({}, {"_id": 1})]
 
         for uid in user_ids:
