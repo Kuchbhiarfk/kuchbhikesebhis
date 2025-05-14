@@ -25,7 +25,7 @@ DB_NAME = "Cluster0"  # Adjust to your database name
 batch_storage = {}
 # In-memory storage for force-subscribe invite links (persisted in MongoDB)
 FORCE_SUB_INVITE_LINKS = {}
-
+PROTECT_CONTENT = False
 # MongoDB client
 try:
     client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
