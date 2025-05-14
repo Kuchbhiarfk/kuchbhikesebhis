@@ -1,7 +1,6 @@
 import asyncio
 import uuid
 import base64
-import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import (
     Application,
@@ -13,37 +12,53 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError
 from pymongo import MongoClient
-from bson.objectid import ObjectId
-from bson.int64 import Int64
+from pymongo.errors import ConnectionFailure
 
-# Load environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7940443271:AAHaBVuFNUEgz4L2ptnSHtdvfQ2sOd0cANs")
-OWNER_ID = int(os.getenv("OWNER_ID", 5487643307))
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority")
-DB_NAME = os.getenv("DB_NAME", "Cluster0")
-
-# In-memory storage
+# Bot token (store securely in production, e.g., in .env)
+BOT_TOKEN = "7931405874:AAGodglFGX3zOG49z5dxMff_GpaNLgxZ9OE"
+# Owner ID
+OWNER_ID = 5487643307
+# MongoDB connection (replace with your Cluster0 URI)
+MONGODB_URI = "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority"  # e.g., mongodb+srv://username:password@cluster0.mongodb.net/telegram_bot?retryWrites=true&w=majority
+DB_NAME = "Cluster0"  # Adjust to your database name
+# In-memory storage for batch requests (use a database in production for legacy batch_ links)
 batch_storage = {}
+# In-memory storage for force-subscribe invite links (persisted in MongoDB)
 FORCE_SUB_INVITE_LINKS = {}
 
-def init_db():
-    """Initialize MongoDB connection and ensure logs collection has a document."""
-    try:
-        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
-        db = client[DB_NAME]
-        logs_collection = db.logs
-        if logs_collection.count_documents({}) == 0:
-            logs_collection.insert_one({
-                "force_sub_channel_ids": [],
-                "approved_channel_ids": [],
-                "protect_content": True,
-                "auto_delete_time": 600,
-                "caption_template": None
-            })
-        return db
-    except Exception as e:
-        print(f"MongoDB Connection Error: {e}")
-        raise
+# MongoDB client
+try:
+    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+    client.admin.command('ping')  # Test connection
+    db = client[DB_NAME]
+    users_collection = db["users"]
+    logs_collection = db["logs"]
+except ConnectionFailure as e:
+    print(f"MongoDB connection failed: {e}")
+    raise SystemExit("Failed to connect to MongoDB. Check MONGODB_URI.")
+
+# Initialize logs collection with default config if not exists
+def initialize_logs():
+    default_config = {
+        "_id": "config",
+        "force_sub_channels": [],
+        "approved_channels": [],
+        "protect_content": True,
+        "auto_delete_time": 600,
+        "caption_template": None
+    }
+    if logs_collection.find_one({"_id": "config"}) is None:
+        logs_collection.insert_one(default_config)
+    config = logs_collection.find_one({"_id": "config"})
+    return config
+
+# Load initial config
+config = initialize_logs()
+FORCE_SUB_CHANNEL_IDS = config["force_sub_channels"]
+APPROVED_CHANNEL_IDS = config["approved_channels"]
+PROTECT_CONTENT = config["protect_content"]
+AUTO_DELETE_TIME = config["auto_delete_time"]
+CAPTION_TEMPLATE = config["caption_template"]
 
 async def auto_delete_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /auto_delete_msg command to set global auto-deletion time (owner-only)."""
@@ -52,14 +67,14 @@ async def auto_delete_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             "<b>❌ Access Denied</b>\n<i>This command is restricted to the bot owner.</i>",
             parse_mode="HTML",
-            protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+            protect_content=PROTECT_CONTENT
         )
         return
 
     await update.message.reply_text(
         "<b>⏰ Set Auto-Deletion Time</b>\n<i>Please send the time in seconds for auto-deletion (e.g., 600 for 10 minutes).</i>",
         parse_mode="HTML",
-        protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+        protect_content=PROTECT_CONTENT
     )
     context.user_data["state"] = "awaiting_auto_delete_time"
 
@@ -70,7 +85,7 @@ async def protect_content(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             "<b>❌ Access Denied</b>\n<i>This command is restricted to the bot owner.</i>",
             parse_mode="HTML",
-            protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+            protect_content=PROTECT_CONTENT
         )
         return
 
@@ -79,203 +94,40 @@ async def protect_content(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             "<b>⚠️ Invalid Input</b>\n<i>Please use: /protect_content true or /protect_content false</i>",
             parse_mode="HTML",
-            protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+            protect_content=PROTECT_CONTENT
         )
         return
 
-    protect_content = args[0].lower() == "true"
-    db = context.bot_data["db"]
-    db.logs.update_one({}, {"$set": {"protect_content": protect_content}})
-    status = "enabled" if protect_content else "disabled"
+    global PROTECT_CONTENT
+    PROTECT_CONTENT = args[0].lower() == "true"
+    logs_collection.update_one(
+        {"_id": "config"},
+        {"$set": {"protect_content": PROTECT_CONTENT}}
+    )
+    status = "enabled" if PROTECT_CONTENT else "disabled"
     await update.message.reply_text(
         f"<b>✅ Protect Content Updated</b>\n<i>Content protection is now <b>{status}</b>.</i>",
         parse_mode="HTML",
-        protect_content=protect_content
+        protect_content=PROTECT_CONTENT
     )
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /broadcast command to initiate broadcasting (owner-only)."""
+    """Handle /broadcast command to initiate broadcasting to all users (owner-only)."""
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
         await update.message.reply_text(
             "<b>❌ Access Denied</b>\n<i>This command is restricted to the bot owner.</i>",
             parse_mode="HTML",
-            protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+            protect_content=PROTECT_CONTENT
         )
         return
 
     await update.message.reply_text(
         "<b>📢 Broadcast Message</b>\n<i>Please send the message to broadcast (text, photo, video, or sticker). Text supports HTML formatting.</i>",
         parse_mode="HTML",
-        protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+        protect_content=PROTECT_CONTENT
     )
     context.user_data["state"] = "awaiting_broadcast_message"
-
-async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process the broadcast message and send to all non-banned users."""
-    user_data = context.user_data
-    user_id = update.effective_user.id
-    message = update.message
-    db = context.bot_data["db"]
-    protect_content = db.logs.find_one({})["protect_content"]
-
-    if user_data.get("state") == "awaiting_broadcast_message":
-        if user_id != OWNER_ID:
-            await message.reply_text(
-                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
-                parse_mode="HTML",
-                protect_content=protect_content
-            )
-            user_data.clear()
-            return
-
-        user_data["broadcast_message"] = message
-        await message.reply_text(
-            "<b>⏰ Set Deletion Time</b>\n<i>Please send the time (in seconds) after which the broadcast message should be deleted (e.g., 30).</i>",
-            parse_mode="HTML",
-            protect_content=protect_content
-        )
-        user_data["state"] = "awaiting_broadcast_time"
-        return
-
-    if user_data.get("state") == "awaiting_broadcast_time":
-        if user_id != OWNER_ID:
-            await message.reply_text(
-                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
-                parse_mode="HTML",
-                protect_content=protect_content
-            )
-            user_data.clear()
-            return
-
-        text = message.text.strip() if message.text else ""
-        try:
-            delete_after = int(text)
-            if delete_after <= 0:
-                raise ValueError("Time must be positive")
-        except ValueError:
-            await message.reply_text(
-                "<b>❌ Invalid Time</b>\n<i>Please send a valid number of seconds (e.g., 30).</i>",
-                parse_mode="HTML",
-                protect_content=protect_content
-            )
-            return
-
-        broadcast_message = user_data["broadcast_message"]
-        sent_successfully = 0
-        blocked = 0
-        failed = 0
-        message_ids = {}
-        failed_users = []
-
-        # Fetch all non-banned users
-        users = list(db.users.find({"ban_status.is_banned": False}))
-        total_users = len(users)
-        if total_users == 0:
-            await message.reply_text(
-                "<b>⚠️ No Users</b>\n<i>No non-banned users found in the database.</i>",
-                parse_mode="HTML",
-                protect_content=protect_content
-            )
-            user_data.clear()
-            return
-
-        for user in users:
-            uid = int(user["id"])  # Convert NumberLong to int
-            try:
-                if broadcast_message.text:
-                    sent_message = await context.bot.send_message(
-                        chat_id=uid,
-                        text=broadcast_message.text,
-                        parse_mode="HTML" if broadcast_message.text else None,
-                        protect_content=protect_content
-                    )
-                elif broadcast_message.photo:
-                    sent_message = await context.bot.send_photo(
-                        chat_id=uid,
-                        photo=broadcast_message.photo[-1].file_id,
-                        caption=broadcast_message.caption,
-                        parse_mode="HTML" if broadcast_message.caption else None,
-                        protect_content=protect_content
-                    )
-                elif broadcast_message.video:
-                    sent_message = await context.bot.send_video(
-                        chat_id=uid,
-                        video=broadcast_message.video.file_id,
-                        caption=broadcast_message.caption,
-                        parse_mode="HTML" if broadcast_message.caption else None,
-                        protect_content=protect_content
-                    )
-                elif broadcast_message.sticker:
-                    sent_message = await context.bot.send_sticker(
-                        chat_id=uid,
-                        sticker=broadcast_message.sticker.file_id,
-                        protect_content=protect_content
-                    )
-                else:
-                    await message.reply_text(
-                        "<b>❌ Unsupported Message Type</b>\n<i>Only text, photo, video, or sticker messages are supported.</i>",
-                        parse_mode="HTML",
-                        protect_content=protect_content
-                    )
-                    user_data.clear()
-                    return
-
-                sent_successfully += 1
-                message_ids[uid] = sent_message.message_id
-                await asyncio.sleep(0.1)  # Small delay to avoid rate limits
-            except TelegramError as e:
-                if "blocked by user" in str(e).lower() or "chat not found" in str(e).lower():
-                    blocked += 1
-                else:
-                    failed += 1
-                    failed_users.append((uid, str(e)))
-                # Log failure to owner
-                await context.bot.send_message(
-                    chat_id=OWNER_ID,
-                    text=f"<b>⚠️ Broadcast Failure</b>\n<i>User <code>{uid}</code>: <code>{e}</code></i>",
-                    parse_mode="HTML",
-                    protect_content=protect_content
-                )
-
-        # Delete messages after delay
-        await asyncio.sleep(delete_after)
-        deleted = 0
-        for uid, msg_id in message_ids.items():
-            try:
-                await context.bot.delete_message(chat_id=uid, message_id=msg_id)
-                deleted += 1
-            except TelegramError as e:
-                await context.bot.send_message(
-                    chat_id=OWNER_ID,
-                    text=f"<b>⚠️ Deletion Failure</b>\n<i>User <code>{uid}</code>, Message <code>{msg_id}</code>: <code>{e}</code></i>",
-                    parse_mode="HTML",
-                    protect_content=protect_content
-                )
-
-        # Send summary
-        feedback = [
-            f"<b>📊 Broadcast Summary</b>",
-            f"<b>Total users:</b> <code>{total_users}</code>",
-            f"<b>Successfully sent:</b> <code>{sent_successfully}</code>",
-            f"<b>Blocked or invalid:</b> <code>{blocked}</code>",
-            f"<b>Other failures:</b> <code>{failed}</code>",
-            f"<b>Deleted:</b> <code>{deleted}</code>"
-        ]
-        if failed_users:
-            feedback.append("<b>Failed Users:</b>")
-            for uid, error in failed_users[:5]:  # Limit to 5 for brevity
-                feedback.append(f"<i>User <code>{uid}</code>: <code>{error}</code></i>")
-            if len(failed_users) > 5:
-                feedback.append(f"<i>...and {len(failed_users) - 5} more</i>")
-
-        await message.reply_text(
-            "\n".join(feedback),
-            parse_mode="HTML",
-            protect_content=protect_content
-        )
-        user_data.clear()
-        return
 
 async def new_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /new_caption command to set custom caption template (owner-only)."""
@@ -284,21 +136,19 @@ async def new_caption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(
             "<b>❌ Access Denied</b>\n<i>This command is restricted to the bot owner.</i>",
             parse_mode="HTML",
-            protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+            protect_content=PROTECT_CONTENT
         )
         return
 
     await update.message.reply_text(
         "<b>📝 Set Caption Template</b>\n<i>Please send the caption template, using {caption} as the placeholder for the original caption or file name (e.g., <code><b>{caption}\nHACKHEIST</b></code>).</i>",
         parse_mode="HTML",
-        protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+        protect_content=PROTECT_CONTENT
     )
     context.user_data["state"] = "awaiting_caption_template"
 
 async def delete_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_ids: list, notification_message_id: int) -> None:
     """Delete forwarded messages and edit the notification message."""
-    db = context.bot_data["db"]
-    protect_content = db.logs.find_one({})["protect_content"]
     for msg_id in message_ids:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
@@ -307,8 +157,7 @@ async def delete_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
                 await context.bot.send_message(
                     chat_id=OWNER_ID,
                     text=f"<b>⚠️ Deletion Error</b>\n<i>Failed to delete message {msg_id} in chat {chat_id}: <code>{e}</code></i>",
-                    parse_mode="HTML",
-                    protect_content=protect_content
+                    parse_mode="HTML"
                 )
             except TelegramError:
                 pass
@@ -319,15 +168,14 @@ async def delete_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
             message_id=notification_message_id,
             text="<b>✅ Your above Msg_ids deleted Successfully</b>",
             parse_mode="HTML",
-            protect_content=protect_content
+            protect_content=PROTECT_CONTENT
         )
     except TelegramError as e:
         try:
             await context.bot.send_message(
                 chat_id=OWNER_ID,
                 text=f"<b>⚠️ Notification Edit Error</b>\n<i>Failed to edit notification {notification_message_id} in chat {chat_id}: <code>{e}</code></i>",
-                parse_mode="HTML",
-                protect_content=protect_content
+                parse_mode="HTML"
             )
         except TelegramError:
             pass
@@ -340,43 +188,25 @@ async def schedule_deletion(context: ContextTypes.DEFAULT_TYPE, chat_id: int, me
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command, including deep links with Base64-encoded get- format or legacy batch_ UUID."""
     user_id = update.effective_user.id
+    # Save new user as 2nd type if not exists
+    if not users_collection.find_one({"_id": user_id}):
+        users_collection.insert_one({"_id": user_id})
+    args = context.args
     user = update.effective_user
     chat_id = update.effective_chat.id
-    db = context.bot_data["db"]
-    args = context.args
-
-    # Check if user exists in users collection; if not, add them
-    user_doc = db.users.find_one({"id": Int64(user_id)})
-    if not user_doc:
-        db.users.insert_one({
-            "id": Int64(user_id),
-            "name": user.full_name or ".",
-            "ban_status": {
-                "is_banned": False,
-                "ban_reason": ""
-            }
-        })
-
-    # Load settings from logs
-    logs = db.logs.find_one({})
-    force_sub_channel_ids = logs["force_sub_channel_ids"]
-    approved_channel_ids = logs["approved_channel_ids"]
-    protect_content = logs["protect_content"]
-    auto_delete_time = logs["auto_delete_time"]
-    caption_template = logs["caption_template"]
 
     if args:
-        if not force_sub_channel_ids:
+        if not FORCE_SUB_CHANNEL_IDS:
             await update.message.reply_text(
                 "<b>⚠️ No Force-Subscribe Channels</b>\n<i>Please contact the bot owner to set up force-subscribe channels.</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             return
 
         non_subscribed_channels = []
         try:
-            for channel_id in force_sub_channel_ids:
+            for channel_id in FORCE_SUB_CHANNEL_IDS:
                 member = await context.bot.get_chat_member(channel_id, user.id)
                 if member.status not in ['member', 'administrator', 'creator']:
                     non_subscribed_channels.append(channel_id)
@@ -384,7 +214,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(
                 f"<b>❌ Error</b>\n<i>Failed to check subscription: <code>{e}</code></i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             return
 
@@ -407,7 +237,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         await update.message.reply_text(
                             f"<b>⚠️ Warning</b>\n<i>Error generating invite link for channel <code>{channel_id}</code>: <code>{e}</code>. Using fallback link.</i>",
                             parse_mode="HTML",
-                            protect_content=protect_content
+                            protect_content=PROTECT_CONTENT
                         )
                         FORCE_SUB_INVITE_LINKS[channel_id] = invite_link
 
@@ -428,7 +258,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "<b>📢 Join Required Channels</b>\n<i>First, you must join the following channel(s) to proceed:</i>",
                 reply_markup=reply_markup,
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             return
 
@@ -460,7 +290,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             file_name = None
 
                         original_caption = caption or file_name or "Media"
-                        new_caption = caption_template.format(caption=original_caption) if caption_template else f"{original_caption}\nHACKHEIST"
+                        new_caption = CAPTION_TEMPLATE.format(caption=original_caption) if CAPTION_TEMPLATE else f"{original_caption}\nHACKHEIST"
 
                         sent_message = await context.bot.copy_message(
                             chat_id=chat_id,
@@ -468,7 +298,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             message_id=msg_id,
                             caption=new_caption if temp_message.document or temp_message.video or temp_message.photo else None,
                             parse_mode="HTML" if (temp_message.document or temp_message.video or temp_message.photo) else None,
-                            protect_content=protect_content
+                            protect_content=PROTECT_CONTENT
                         )
                         forwarded_message_ids.append(sent_message.message_id)
                         await context.bot.delete_message(chat_id=OWNER_ID, message_id=temp_message.message_id)
@@ -482,17 +312,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             await update.message.reply_text(
                                 f"<b>❌ Error</b>\n<i>Failed to forward message <code>{msg_id}</code>: <code>{e}</code></i>",
                                 parse_mode="HTML",
-                                protect_content=protect_content
+                                protect_content=PROTECT_CONTENT
                             )
 
                 if forwarded:
                     notification = await context.bot.send_message(
                         chat_id=chat_id,
-                        text=f"<b>⏰ Your above Msg_ids are deleting in {auto_delete_time} seconds</b>",
+                        text=f"<b>⏰ Your above Msg_ids are deleting in {AUTO_DELETE_TIME} seconds</b>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
-                    asyncio.create_task(schedule_deletion(context, chat_id, forwarded_message_ids, notification.message_id, auto_delete_time))
+                    asyncio.create_task(schedule_deletion(context, chat_id, forwarded_message_ids, notification.message_id, AUTO_DELETE_TIME))
 
                 feedback = []
                 if skipped:
@@ -504,14 +334,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     await update.message.reply_text(
                         "\n".join(feedback),
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                 del batch_storage[batch_id]
             else:
                 await update.message.reply_text(
                     "<b>❌ Invalid Link</b>\n<i>The batch link is invalid or has expired.</i>",
                     parse_mode="HTML",
-                    protect_content=protect_content
+                    protect_content=PROTECT_CONTENT
                 )
         else:
             try:
@@ -527,7 +357,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 abs_channel_id = None
                 from_msg = None
                 to_msg = None
-                for cid in approved_channel_ids:
+                for cid in APPROVED_CHANNEL_IDS:
                     abs_cid = abs(int(cid))
                     from_msg_candidate = num1 // abs_cid
                     to_msg_candidate = num2 // abs_cid
@@ -563,7 +393,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             file_name = None
 
                         original_caption = caption or file_name or "Media"
-                        new_caption = caption_template.format(caption=original_caption) if caption_template else f"{original_caption}\nHACKHEIST"
+                        new_caption = CAPTION_TEMPLATE.format(caption=original_caption) if CAPTION_TEMPLATE else f"{original_caption}\nHACKHEIST"
 
                         sent_message = await context.bot.copy_message(
                             chat_id=chat_id,
@@ -571,7 +401,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             message_id=msg_id,
                             caption=new_caption if temp_message.document or temp_message.video or temp_message.photo else None,
                             parse_mode="HTML" if (temp_message.document or temp_message.video or temp_message.photo) else None,
-                            protect_content=protect_content
+                            protect_content=PROTECT_CONTENT
                         )
                         forwarded_message_ids.append(sent_message.message_id)
                         await context.bot.delete_message(chat_id=OWNER_ID, message_id=temp_message.message_id)
@@ -585,17 +415,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             await update.message.reply_text(
                                 f"<b>❌ Error</b>\n<i>Failed to forward message <code>{msg_id}</code>: <code>{e}</code></i>",
                                 parse_mode="HTML",
-                                protect_content=protect_content
+                                protect_content=PROTECT_CONTENT
                             )
 
                 if forwarded:
                     notification = await context.bot.send_message(
                         chat_id=chat_id,
-                        text=f"<b>⏰ Your above Msg_ids are deleting in {auto_delete_time} seconds</b>",
+                        text=f"<b>⏰ Your above Msg_ids are deleting in {AUTO_DELETE_TIME} seconds</b>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
-                    asyncio.create_task(schedule_deletion(context, chat_id, forwarded_message_ids, notification.message_id, auto_delete_time))
+                    asyncio.create_task(schedule_deletion(context, chat_id, forwarded_message_ids, notification.message_id, AUTO_DELETE_TIME))
 
                 feedback = []
                 if skipped:
@@ -607,19 +437,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     await update.message.reply_text(
                         "\n".join(feedback),
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
             except (base64.binascii.Error, ValueError, TelegramError) as e:
                 await update.message.reply_text(
                     f"<b>❌ Invalid Link</b>\n<i>The link is invalid or corrupted: <code>{e}</code></i>",
                     parse_mode="HTML",
-                    protect_content=protect_content
+                    protect_content=PROTECT_CONTENT
                 )
     else:
         await update.message.reply_text(
             "<b>👋 Welcome!</b>\n<i>Use <code>/batch</code> to forward a range of messages from approved channels.</i>",
             parse_mode="HTML",
-            protect_content=protect_content
+            protect_content=PROTECT_CONTENT
         )
 
 async def set_force_sub_ids(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -629,14 +459,14 @@ async def set_force_sub_ids(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(
             "<b>❌ Access Denied</b>\n<i>This command is restricted to the bot owner.</i>",
             parse_mode="HTML",
-            protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+            protect_content=PROTECT_CONTENT
         )
         return
 
     await update.message.reply_text(
         "<b>📝 Set Force-Subscribe Channels</b>\n<i>Please send a comma-separated list of channel IDs (e.g., <code>-1002498103615,-1001234567890</code>).</i>",
         parse_mode="HTML",
-        protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+        protect_content=PROTECT_CONTENT
     )
     context.user_data["state"] = "awaiting_force_sub_ids"
 
@@ -647,28 +477,24 @@ async def set_channel_ids(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             "<b>❌ Access Denied</b>\n<i>This command is restricted to the bot owner.</i>",
             parse_mode="HTML",
-            protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+            protect_content=PROTECT_CONTENT
         )
         return
 
     await update.message.reply_text(
         "<b>📝 Set Approved Channels</b>\n<i>Please send a comma-separated list of channel IDs (e.g., <code>-10093556234,-10028495942</code>).</i>",
         parse_mode="HTML",
-        protect_content=context.bot_data["db"].logs.find_one({})["protect_content"]
+        protect_content=PROTECT_CONTENT
     )
     context.user_data["state"] = "awaiting_channel_ids"
 
 async def batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /batch command to initiate multiple batch link creation."""
-    db = context.bot_data["db"]
-    approved_channel_ids = db.logs.find_one({})["approved_channel_ids"]
-    protect_content = db.logs.find_one({})["protect_content"]
-
-    if not approved_channel_ids:
+    if not APPROVED_CHANNEL_IDS:
         await update.message.reply_text(
             "<b>⚠️ No Approved Channels</b>\n<i>The owner must set approved channel IDs using <code>/set_channel_ids</code> first.</i>",
             parse_mode="HTML",
-            protect_content=protect_content
+            protect_content=PROTECT_CONTENT
         )
         return
 
@@ -678,25 +504,23 @@ async def batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "<code>https://t.me/c/2493255368/45525\nhttps://t.me/c/2493255368/45528</code>\n\n"
         "<code>https://t.me/c/2493255368/45252\nhttps://t.me/c/2493255368/45254</code>",
         parse_mode="HTML",
-        protect_content=protect_content
+        protect_content=PROTECT_CONTENT
     )
     context.user_data["batch_state"] = "awaiting_batch_links"
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle incoming messages to process settings or batch links."""
+    """Handle incoming messages to process channel IDs, force-subscribe IDs, batch links, broadcast messages, caption templates, or auto-deletion time."""
     user_data = context.user_data
     user_id = update.effective_user.id
     message = update.message
     text = message.text.strip() if message.text else ""
-    db = context.bot_data["db"]
-    protect_content = db.logs.find_one({})["protect_content"]
 
     if user_data.get("state") == "awaiting_auto_delete_time":
         if user_id != OWNER_ID:
             await message.reply_text(
                 "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
             return
@@ -707,23 +531,144 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 raise ValueError("Time must be positive")
             if seconds > 86400:
                 raise ValueError("Time must be less than 24 hours")
-            db.logs.update_one({}, {"$set": {"auto_delete_time": seconds}})
+            global AUTO_DELETE_TIME
+            AUTO_DELETE_TIME = seconds
+            logs_collection.update_one(
+                {"_id": "config"},
+                {"$set": {"auto_delete_time": seconds}}
+            )
             await message.reply_text(
                 f"<b>✅ Auto-Deletion Time Set</b>\n<i>Messages will be deleted after {seconds} seconds for all users.</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
         except ValueError as e:
             await message.reply_text(
                 f"<b>❌ Invalid Time</b>\n<i>Please send a valid number of seconds (e.g., 600). Error: <code>{e}</code></i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
         user_data.clear()
         return
 
-    if user_data.get("state") in ["awaiting_broadcast_message", "awaiting_broadcast_time"]:
-        await handle_broadcast_message(update, context)
+    if user_data.get("state") == "awaiting_broadcast_message":
+        if user_id != OWNER_ID:
+            await message.reply_text(
+                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
+                parse_mode="HTML",
+                protect_content=PROTECT_CONTENT
+            )
+            user_data.clear()
+            return
+
+        user_data["broadcast_message"] = message
+        await message.reply_text(
+            "<b>⏰ Set Deletion Time</b>\n<i>Please send the time (in seconds) after which the broadcast message should be deleted (e.g., 30).</i>",
+            parse_mode="HTML",
+            protect_content=PROTECT_CONTENT
+        )
+        user_data["state"] = "awaiting_broadcast_time"
+        return
+
+    if user_data.get("state") == "awaiting_broadcast_time":
+        if user_id != OWNER_ID:
+            await message.reply_text(
+                "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
+                parse_mode="HTML",
+                protect_content=PROTECT_CONTENT
+            )
+            user_data.clear()
+            return
+
+        try:
+            delete_after = int(text)
+            if delete_after <= 0:
+                raise ValueError("Time must be positive")
+        except ValueError:
+            await message.reply_text(
+                "<b>❌ Invalid Time</b>\n<i>Please send a valid number of seconds (e.g., 30).</i>",
+                parse_mode="HTML",
+                protect_content=PROTECT_CONTENT
+            )
+            return
+
+        broadcast_message = user_data["broadcast_message"]
+        sent_successfully = 0
+        blocked = 0
+        message_ids = {}
+
+        # Fetch all user IDs from users collection
+        user_ids = [user["_id"] for user in users_collection.find({}, {"_id": 1})]
+
+        for uid in user_ids:
+            try:
+                if broadcast_message.text:
+                    sent_message = await context.bot.send_message(
+                        chat_id=uid,
+                        text=broadcast_message.text,
+                        parse_mode="HTML" if broadcast_message.text else None,
+                        protect_content=PROTECT_CONTENT
+                    )
+                elif broadcast_message.photo:
+                    sent_message = await context.bot.send_photo(
+                        chat_id=uid,
+                        photo=broadcast_message.photo[-1].file_id,
+                        caption=broadcast_message.caption,
+                        parse_mode="HTML" if broadcast_message.caption else None,
+                        protect_content=PROTECT_CONTENT
+                    )
+                elif broadcast_message.video:
+                    sent_message = await context.bot.send_video(
+                        chat_id=uid,
+                        video=broadcast_message.video.file_id,
+                        caption=broadcast_message.caption,
+                        parse_mode="HTML" if broadcast_message.caption else None,
+                        protect_content=PROTECT_CONTENT
+                    )
+                elif broadcast_message.sticker:
+                    sent_message = await context.bot.send_sticker(
+                        chat_id=uid,
+                        sticker=broadcast_message.sticker.file_id,
+                        protect_content=PROTECT_CONTENT
+                    )
+                else:
+                    await message.reply_text(
+                        "<b>❌ Unsupported Message Type</b>\n<i>Only text, photo, video, or sticker messages are supported.</i>",
+                        parse_mode="HTML",
+                        protect_content=PROTECT_CONTENT
+                    )
+                    user_data.clear()
+                    return
+
+                sent_successfully += 1
+                message_ids[uid] = sent_message.message_id
+            except TelegramError as e:
+                if "blocked by user" in str(e).lower() or "chat not found" in str(e).lower():
+                    blocked += 1
+                else:
+                    await message.reply_text(
+                        f"<b>⚠️ Warning</b>\n<i>Failed to send to user <code>{uid}</code>: <code>{e}</code></i>",
+                        parse_mode="HTML",
+                        protect_content=PROTECT_CONTENT
+                    )
+
+        await asyncio.sleep(delete_after)
+        for uid, msg_id in message_ids.items():
+            try:
+                await context.bot.delete_message(chat_id=uid, message_id=msg_id)
+            except TelegramError:
+                pass
+
+        total_users = len(user_ids)
+        await message.reply_text(
+            f"<b>📊 Broadcast Results</b>\n"
+            f"<b>Total users:</b> <code>{total_users}</code>\n"
+            f"<b>Successfully sent:</b> <code>{sent_successfully}</code>\n"
+            f"<b>Blocked bot:</b> <code>{blocked}</code>",
+            parse_mode="HTML",
+            protect_content=PROTECT_CONTENT
+        )
+        user_data.clear()
         return
 
     if user_data.get("state") == "awaiting_caption_template":
@@ -731,7 +676,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text(
                 "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
             return
@@ -740,15 +685,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text(
                 "<b>❌ Invalid Template</b>\n<i>The template must include {caption} as a placeholder (e.g., <code><b>{caption}\nHACKHEIST</b></code>).</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             return
 
-        db.logs.update_one({}, {"$set": {"caption_template": text}})
+        global CAPTION_TEMPLATE
+        CAPTION_TEMPLATE = text
+        logs_collection.update_one(
+            {"_id": "config"},
+            {"$set": {"caption_template": text}}
+        )
         await message.reply_text(
             f"<b>✅ Caption Template Updated</b>\n<i>New template: <code>{text}</code></i>",
             parse_mode="HTML",
-            protect_content=protect_content
+            protect_content=PROTECT_CONTENT
         )
         user_data.clear()
         return
@@ -758,7 +708,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text(
                 "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
             return
@@ -769,7 +719,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await message.reply_text(
                     "<b>⚠️ Invalid Input</b>\n<i>No force-subscribe channel IDs provided.</i>",
                     parse_mode="HTML",
-                    protect_content=protect_content
+                    protect_content=PROTECT_CONTENT
                 )
                 user_data.clear()
                 return
@@ -780,15 +730,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await message.reply_text(
                         f"<b>❌ Invalid ID</b>\n<i>Channel ID <code>{channel_id}</code> must start with -100 followed by digits.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
                 valid_ids.append(channel_id)
 
-            old_ids = set(db.logs.find_one({})["force_sub_channel_ids"])
-            db.logs.update_one({}, {"$set": {"force_sub_channel_ids": valid_ids}})
+            global FORCE_SUB_CHANNEL_IDS
+            old_ids = set(FORCE_SUB_CHANNEL_IDS)
+            FORCE_SUB_CHANNEL_IDS = valid_ids
             new_ids = set(valid_ids)
+            logs_collection.update_one(
+                {"_id": "config"},
+                {"$set": {"force_sub_channels": valid_ids}}
+            )
 
             for channel_id in old_ids - new_ids:
                 FORCE_SUB_INVITE_LINKS.pop(channel_id, None)
@@ -804,20 +759,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await message.reply_text(
                         f"<b>⚠️ Warning</b>\n<i>Error generating invite link for channel <code>{channel_id}</code>: <code>{e}</code>. Using fallback link.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
 
             await message.reply_text(
-                f"<b>✅ Force-Subscribe Channels Updated</b>\n<i>New IDs: <code>{', '.join(valid_ids)}</code></i>",
+                f"<b>✅ Force-Subscribe Channels Updated</b>\n<i>New IDs: <code>{', '.join(FORCE_SUB_CHANNEL_IDS)}</code></i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
         except Exception as e:
             await message.reply_text(
                 f"<b>❌ Error</b>\n<i>Failed to process force-subscribe channel IDs: <code>{e}</code></i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
 
@@ -826,7 +781,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text(
                 "<b>❌ Access Denied</b>\n<i>This action is restricted to the bot owner.</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
             return
@@ -837,7 +792,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await message.reply_text(
                     "<b>⚠️ Invalid Input</b>\n<i>No channel IDs provided.</i>",
                     parse_mode="HTML",
-                    protect_content=protect_content
+                    protect_content=PROTECT_CONTENT
                 )
                 user_data.clear()
                 return
@@ -848,29 +803,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await message.reply_text(
                         f"<b>❌ Invalid ID</b>\n<i>Channel ID <code>{channel_id}</code> must start with -100 followed by digits.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
                 valid_ids.append(channel_id)
 
-            db.logs.update_one({}, {"$set": {"approved_channel_ids": valid_ids}})
+            global APPROVED_CHANNEL_IDS
+            APPROVED_CHANNEL_IDS = valid_ids
+            logs_collection.update_one(
+                {"_id": "config"},
+                {"$set": {"approved_channels": valid_ids}}
+            )
             await message.reply_text(
-                f"<b>✅ Approved Channels Updated</b>\n<i>New IDs: <code>{', '.join(valid_ids)}</code></i>",
+                f"<b>✅ Approved Channels Updated</b>\n<i>New IDs: <code>{', '.join(APPROVED_CHANNEL_IDS)}</code></i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
         except Exception as e:
             await message.reply_text(
                 f"<b>❌ Error</b>\n<i>Failed to process channel IDs: <code>{e}</code></i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
 
     elif user_data.get("batch_state") == "awaiting_batch_links":
-        approved_channel_ids = db.logs.find_one({})["approved_channel_ids"]
         pairs = [pair.strip().split("\n") for pair in text.split("\n\n") if pair.strip()]
         batch_pairs = []
 
@@ -879,7 +838,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await message.reply_text(
                     f"<b>❌ Invalid Pair {i}</b>\n<i>Each pair must contain exactly two links.</i>",
                     parse_mode="HTML",
-                    protect_content=protect_content
+                    protect_content=PROTECT_CONTENT
                 )
                 user_data.clear()
                 return
@@ -890,18 +849,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await message.reply_text(
                         f"<b>❌ Invalid Pair {i}</b>\n<i>First link must be a valid message link.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
                 parts = first_link.split("/")
                 channel_id = f"-100{parts[4]}"
                 first_msg_id = int(parts[5])
-                if channel_id not in approved_channel_ids:
+                if channel_id not in APPROVED_CHANNEL_IDS:
                     await message.reply_text(
                         f"<b>❌ Invalid Pair {i}</b>\n<i>First link is not from an approved channel.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
@@ -910,18 +869,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await message.reply_text(
                         f"<b>❌ Invalid Pair {i}</b>\n<i>Second link must be a valid message link.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
                 parts = second_link.split("/")
                 second_channel_id = f"-100{parts[4]}"
                 second_msg_id = int(parts[5])
-                if second_channel_id not in approved_channel_ids:
+                if second_channel_id not in APPROVED_CHANNEL_IDS:
                     await message.reply_text(
                         f"<b>❌ Invalid Pair {i}</b>\n<i>Second link is not from an approved channel.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
@@ -929,7 +888,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await message.reply_text(
                         f"<b>❌ Invalid Pair {i}</b>\n<i>Both links must be from the same channel.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
@@ -937,7 +896,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await message.reply_text(
                         f"<b>❌ Invalid Pair {i}</b>\n<i>Second message ID must be >= first message ID.</i>",
                         parse_mode="HTML",
-                        protect_content=protect_content
+                        protect_content=PROTECT_CONTENT
                     )
                     user_data.clear()
                     return
@@ -951,7 +910,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await message.reply_text(
                     f"<b>❌ Invalid Pair {i}</b>\n<i>Invalid link format.</i>",
                     parse_mode="HTML",
-                    protect_content=protect_content
+                    protect_content=PROTECT_CONTENT
                 )
                 user_data.clear()
                 return
@@ -960,7 +919,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(
                 "<b>⚠️ No Valid Pairs</b>\n<i>No valid batch pairs provided. Use <code>/batch</code> to try again.</i>",
                 parse_mode="HTML",
-                protect_content=protect_content
+                protect_content=PROTECT_CONTENT
             )
             user_data.clear()
             return
@@ -981,47 +940,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "<b>✅ Batch Links Created</b>\n<i>Here are your batch links:</i>",
             reply_markup=reply_markup,
             parse_mode="HTML",
-            protect_content=protect_content
+            protect_content=PROTECT_CONTENT
         )
         user_data.clear()
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors."""
-    protect_content = context.bot_data["db"].logs.find_one({})["protect_content"]
     if update and update.message:
         await update.message.reply_text(
             f"<b>❌ Bot Error</b>\n<i>An error occurred: <code>{context.error}</code></i>",
             parse_mode="HTML",
-            protect_content=protect_content
+            protect_content=PROTECT_CONTENT
         )
         try:
             await context.bot.send_message(
                 chat_id=OWNER_ID,
                 text=f"<b>⚠️ Bot Error</b>\n<i>Error in chat {update.effective_chat.id}: <code>{context.error}</code></i>",
-                parse_mode="HTML",
-                protect_content=protect_content
+                parse_mode="HTML"
             )
         except TelegramError:
             pass
 
-def main():
-    """Run the bot."""
-    db = init_db()
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.bot_data["db"] = db
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("auto_delete_msg", auto_delete_msg))
-    application.add_handler(CommandHandler("protect_content", protect_content))
-    application.add_handler(CommandHandler("broadcast", broadcast))
-    application.add_handler(CommandHandler("new_caption", new_caption))
-    application.add_handler(CommandHandler("set_force_sub_ids", set_force_sub_ids))
-    application.add_handler(CommandHandler("set_channel_ids", set_channel_ids))
-    application.add_handler(CommandHandler("batch", batch))
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
-    application.add_error_handler(error_handler)
-
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+def main() -> None:
+    """Run the bot with explicit event loop management."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        application = Application.builder().token(BOT_TOKEN).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("auto_delete_msg", auto_delete_msg))
+        application.add_handler(CommandHandler("protect_content", protect_content))
+        application.add_handler(CommandHandler("broadcast", broadcast))
+        application.add_handler(CommandHandler("new_caption", new_caption))
+        application.add_handler(CommandHandler("set_force_sub_ids", set_force_sub_ids))
+        application.add_handler(CommandHandler("set_channel_ids", set_channel_ids))
+        application.add_handler(CommandHandler("batch", batch))
+        application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+        application.add_error_handler(error_handler)
+        loop.run_until_complete(application.run_polling(allowed_updates=Update.ALL_TYPES))
+    finally:
+        client.close()
+        loop.close()
 
 if __name__ == "__main__":
     main()
