@@ -6,6 +6,7 @@ Jinja2==3.0.3
 werkzeug==2.0.2
 itsdangerous==2.0.1
 requests==2.26.0
+motor
 pymongo==4.8.0
 
 
