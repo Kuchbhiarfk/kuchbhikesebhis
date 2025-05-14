@@ -17,7 +17,7 @@ from bson.objectid import ObjectId
 from bson.int64 import Int64
 
 # Load environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7931405874:AAGodglFGX3zOG49z5dxMff_GpaNLgxZ9OE")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7940443271:AAHaBVuFNUEgz4L2ptnSHtdvfQ2sOd0cANs")
 OWNER_ID = int(os.getenv("OWNER_ID", 5487643307))
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority")
 DB_NAME = os.getenv("DB_NAME", "Cluster0")
