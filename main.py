@@ -7,6 +7,8 @@ from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
 )
 
@@ -25,7 +27,7 @@ cookies = {
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Welcome! Use /batch_id <batch_id> [-n <filename>.txt] to generate and receive a file with video, DPP, and notes URLs."
+        "Welcome! Use /batch_id <batch_id> [-n <filename>.txt] to start the process."
     )
 
 def fetch_subjects(batch_id, token):
@@ -41,7 +43,8 @@ def fetch_subjects(batch_id, token):
             return data['data']['subjects']
         else:
             return []
-    except requests.RequestException:
+    except requests.RequestException as e:
+        print(f"Error fetching subjects: {e}")
         return []
 
 def get_topics(subject, batch_id, token):
@@ -56,8 +59,10 @@ def get_topics(subject, batch_id, token):
         if data.get("success") and isinstance(data.get("data"), list):
             return data["data"]
         else:
+            print(f"No topics found for subject {subject['_id']}")
             return []
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching topics for subject {subject['_id']}: {e}")
         return []
 
 def get_section(slug, typeId, _id, section_type, subject, batch_id, token):
@@ -81,8 +86,10 @@ def get_section(slug, typeId, _id, section_type, subject, batch_id, token):
         if isinstance(data, list):
             return data
         else:
+            print(f"No {section_type} found for topic {slug}")
             return []
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching {section_type} for topic {slug}: {e}")
         return []
 
 def get_video_url(video, batch_id):
@@ -109,7 +116,13 @@ def get_video_url(video, batch_id):
             if input_group:
                 extracted = input_group.find('input', {'id': 'video_url'})
                 return extracted['value'] if extracted else None
-    except Exception:
+            else:
+                print(f"No video URL found in play page for video {video_title}")
+        else:
+            print(f"Failed to fetch play page for video {video_title}: Status {play_resp.status_code}")
+        return None
+    except Exception as e:
+        print(f"Error fetching video URL for {video_title}: {e}")
         return None
 
 def collect_topic_contents(topic, subject, batch_id, token):
@@ -122,39 +135,39 @@ def collect_topic_contents(topic, subject, batch_id, token):
     # Videos
     videos = get_section(slug, typeId, _id, "videos", subject, batch_id, token)
     if videos:
-        found_any = False
         for video in reversed(videos):
             video_title = video.get('video_title', 'Unknown Title')
             real_url = get_video_url(video, batch_id)
             if real_url:
                 result.append(f"{video_title}: {real_url}")
-                found_any = True
+            else:
+                print(f"No valid URL for video {video_title}")
 
     # Notes
     notes = get_section(slug, typeId, _id, "notes", subject, batch_id, token)
     if notes:
-        found_any = False
         for note in reversed(notes):
             title = note.get('title', 'Unknown Title')
             download_url = note.get('download_url')
             if download_url:
                 result.append(f"{title}: {download_url}")
-                found_any = True
+            else:
+                print(f"No download URL for note {title}")
 
     # DPPs
     dpps = get_section(slug, typeId, _id, "DppNotes", subject, batch_id, token)
     if dpps:
-        found_any = False
         for dpp in reversed(dpps):
             title = dpp.get('title', 'Unknown Title')
             download_url = dpp.get('download_url')
             if download_url:
                 result.append(f"{title}: {download_url}")
-                found_any = True
-    return "\n".join(result)
+            else:
+                print(f"No download URL for DPP {title}")
+
+    return "\n".join(result) if result else ""
 
 def create_progress_bar(progress, total, width=20):
-    """Create a text-based progress bar."""
     if total == 0:
         return "[No items to process]"
     filled = int(width * progress // total)
@@ -165,7 +178,7 @@ def create_progress_bar(progress, total, width=20):
 async def batch_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     batch_id = None
-    filename = "all_videos_notes_dpps.txt"
+    filename = "subject_content.txt"
 
     if len(args) < 1:
         await update.message.reply_text("Usage: /batch_id <batch_id> [-n <filename>.txt]")
@@ -181,54 +194,97 @@ async def batch_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No subjects found or request failed.")
         return
 
+    # Store batch_id and filename in user_data for later use
+    context.user_data['batch_id'] = batch_id
+    context.user_data['filename'] = filename
+    context.user_data['subjects'] = subjects
+    context.user_data['awaiting_subject'] = True
+
+    # Create and send subject list
+    subject_list = [f"{i} {subj['_id']} - {subj['slug']}" for i, subj in enumerate(subjects, 1)]
+    subject_message = "Available subjects:\n" + "\n".join(subject_list) + "\n\nPlease reply with the index or subjectId you want to fetch."
+    await update.message.reply_text(subject_message)
+
+async def handle_subject_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get('awaiting_subject', False):
+        return
+
+    user_input = update.message.text.strip()
+    subjects = context.user_data.get('subjects', [])
+    batch_id = context.user_data.get('batch_id')
+    filename = context.user_data.get('filename', 'subject_content.txt')
+    token = cookies["auth_token"]
+
+    # Try to interpret input as index or subjectId
+    selected_subject = None
+    try:
+        index = int(user_input) - 1
+        if 0 <= index < len(subjects):
+            selected_subject = subjects[index]
+    except ValueError:
+        for subject in subjects:
+            if subject['_id'] == user_input:
+                selected_subject = subject
+                break
+
+    if not selected_subject:
+        await update.message.reply_text("Invalid input. Please provide a valid index or subjectId.")
+        return
+
+    # Clear the awaiting state
+    context.user_data['awaiting_subject'] = False
+
     # Send initial progress message
     progress_message = await update.message.reply_text("Processing... [                    ] 0.0%")
 
     try:
-        total_subjects = len(subjects)
-        subject_count = 0
-        total_topics = sum(len(get_topics(subject, batch_id, token)) for subject in subjects)
+        topics = get_topics(selected_subject, batch_id, token)
+        if not topics:
+            await progress_message.edit_text(f"No topics found for subject {selected_subject['slug']}.")
+            return
+
+        total_topics = len(topics)
         topic_count = 0
+        content_written = False
 
         with open(filename, "w", encoding="utf-8") as f:
-            for subject in subjects:
-                subject_count += 1
-                topics = get_topics(subject, batch_id, token)
-                if not topics:
-                    # Update progress for subject completion
-                    progress = subject_count / total_subjects if total_subjects > 0 else 1
-                    await progress_message.edit_text(
-                        f"Processing subject {subject_count}/{total_subjects}...\n{create_progress_bar(subject_count, total_subjects)}"
-                    )
-                    continue
-
-                for topic in topics:
-                    topic_count += 1
-                    topic_content = collect_topic_contents(topic, subject, batch_id, token)
-                    f.write(topic_content)
+            for topic in topics:
+                topic_count += 1
+                topic_content = collect_topic_contents(topic, selected_subject, batch_id, token)
+                if topic_content:
+                    content_written = True
                     f.flush()
+                else:
+                    print(f"No content found for topic {topic.get('name', 'No Name')}")
 
-                    # Update progress for topic completion
-                    if total_subjects > 0 and total_topics > 0:
-                        progress = (subject_count - 1 + topic_count / len(topics)) / total_subjects
-                    else:
-                        progress = 1
-                    await progress_message.edit_text(
-                        f"Processing subject {subject_count}/{total_subjects}, topic {topic_count}/{total_topics}...\n{create_progress_bar(subject_count * total_topics + topic_count, total_subjects * total_topics)}"
-                    )
+                # Update progress
+                progress = topic_count / total_topics if total_topics > 0 else 1
+                await progress_message.edit_text(
+                    f"Processing topic {topic_count}/{total_topics}...\n{create_progress_bar(topic_count, total_topics)}"
+                )
 
-                topic_count = 0  # Reset topic count for the next subject
+        if not content_written:
+            await progress_message.edit_text(f"No content (videos, notes, or DPPs) found for subject {selected_subject['slug']}.")
+            if os.path.exists(filename):
+                os.remove(filename)
+            return
 
-        # Final progress update
-        await progress_message.edit_text("Processing complete! Uploading file...")
-        
-        # Send the file
-        with open(filename, "rb") as f:
-            await update.message.reply_document(document=f, filename=filename)
+        # Check file size
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            # Final progress update
+            await progress_message.edit_text("Processing complete! Uploading file...")
 
-        # Delete the file
-        os.remove(filename)
-        await update.message.reply_text(f"File {filename} sent and deleted from storage.")
+            # Send the file
+            with open(filename, "rb") as f:
+                await update.message.reply_document(document=f, filename=filename)
+
+            # Delete the file
+            os.remove(filename)
+            await update.message.reply_text(f"File {filename} sent and deleted from storage.")
+        else:
+            await progress_message.edit_text(f"Error: No content was written to the file for subject {selected_subject['slug']}.")
+            if os.path.exists(filename):
+                os.remove(filename)
 
     except Exception as e:
         await progress_message.edit_text(f"Error processing request: {str(e)}")
@@ -236,12 +292,13 @@ async def batch_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(filename)
 
 async def main():
-    # Replace 'YOUR_BOT_TOKEN' with your actual bot token
-    application = Application.builder().token("7549640350:AAFp-7vzfhRIo856b-f_gEilKIoeS9KPL5E").build()
+    # Replace with your actual bot token
+    application = Application.builder().token("8127063024:AAFphZ5wklgwSEs54Tu3PDB3vGBPza2gnQM").build()
 
     # Register handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("batch_id", batch_id))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_subject_selection))
 
     # Start the bot
     print("Bot is running...")
@@ -249,18 +306,15 @@ async def main():
         await application.initialize()
         await application.start()
         await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        # Keep the bot running until interrupted
         await asyncio.Event().wait()
     except Exception as e:
         print(f"Error running bot: {e}")
     finally:
-        # Properly shut down the application
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
 
 if __name__ == "__main__":
-    # Create and manage the event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
