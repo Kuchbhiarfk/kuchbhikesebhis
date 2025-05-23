@@ -293,7 +293,7 @@ async def handle_subject_selection(update: Update, context: ContextTypes.DEFAULT
 
 async def main():
     # Replace with your actual bot token
-    application = Application.builder().token("8127063024:AAFphZ5wklgwSEs54Tu3PDB3vGBPza2gnQM").build()
+    application = Application.builder().token("8127063024:AAFZzjMnNXojf9cREe0g-mQlyK20kvx-Nfo").build()
 
     # Register handlers
     application.add_handler(CommandHandler("start", start))
