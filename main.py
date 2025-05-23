@@ -3,12 +3,17 @@ import urllib.parse
 from bs4 import BeautifulSoup
 import os
 import asyncio
+import logging
 from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
 )
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ---------- Common headers and cookies ----------
 headers = {
@@ -40,7 +45,8 @@ async def fetch_subjects(session, batch_id, token):
             if data.get('success') and 'data' in data and 'subjects' in data['data']:
                 return data['data']['subjects']
             return []
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to fetch subjects for batch_id {batch_id}: {str(e)}")
         return []
 
 async def get_topics(session, subject, batch_id, token):
@@ -55,10 +61,11 @@ async def get_topics(session, subject, batch_id, token):
             if data.get("success") and isinstance(data.get("data"), list):
                 return data["data"]
             return []
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to fetch topics for subject {subject['_id']}: {str(e)}")
         return []
 
-async def get_section(session, slug, typeId, _id, section_type, subject, batch_id, token):
+async def get_section(session, slug, typeId, _id, section_type, subject, batch_id, token, retries=5, delay=2):
     url = (
         f"https://streamfiles.eu.org/api/contents.php"
         f"?topic_slug={slug}"
@@ -72,17 +79,22 @@ async def get_section(session, slug, typeId, _id, section_type, subject, batch_i
         f"&content_type=new"
         f"&encrypt=0"
     )
-    try:
-        async with session.get(url, headers=headers, cookies=cookies) as response:
-            response.raise_for_status()
-            data = await response.json()
-            if isinstance(data, list):
-                return data
-            return []
-    except Exception:
-        return []
+    for attempt in range(1, retries + 1):
+        try:
+            async with session.get(url, headers=headers, cookies=cookies, timeout=10) as response:
+                response.raise_for_status()
+                data = await response.json()
+                if isinstance(data, list) and data:
+                    return data
+                logger.warning(f"Empty or invalid data for {section_type} (attempt {attempt}/{retries})")
+        except Exception as e:
+            logger.error(f"Error fetching {section_type} for topic {slug} (attempt {attempt}/{retries}): {str(e)}")
+        if attempt < retries:
+            await asyncio.sleep(delay * attempt)  # Exponential backoff
+    logger.error(f"Failed to fetch {section_type} for topic {slug} after {retries} attempts")
+    return []
 
-async def get_video_url(session, video, batch_id):
+async def get_video_url(session, video, batch_id, retries=5, delay=2):
     video_url = video.get('video_url', '')
     video_title = urllib.parse.quote(video.get('video_title', ''))
     video_poster = video.get('video_poster', '')
@@ -98,17 +110,26 @@ async def get_video_url(session, video, batch_id):
         f"&subject_id={subject_id}"
         f"&batch_id={batch_id}"
     )
-    try:
-        async with session.get(play_url, headers=headers, cookies=cookies, timeout=10) as response:
-            if response.status == 200:
-                text = await response.text()
-                soup = BeautifulSoup(text, 'html.parser')
-                input_group = soup.find('div', class_='input-group')
-                if input_group:
-                    extracted = input_group.find('input', {'id': 'video_url'})
-                    return extracted['value'] if extracted else None
-    except Exception:
-        return None
+    for attempt in range(1, retries + 1):
+        try:
+            async with session.get(play_url, headers=headers, cookies=cookies, timeout=10) as response:
+                if response.status == 200:
+                    text = await response.text()
+                    soup = BeautifulSoup(text, 'html.parser')
+                    input_group = soup.find('div', class_='input-group')
+                    if input_group:
+                        extracted = input_group.find('input', {'id': 'video_url'})
+                        if extracted and extracted['value']:
+                            return extracted['value']
+                    logger.warning(f"No video URL found for video {video_title} (attempt {attempt}/{retries})")
+                else:
+                    logger.warning(f"Non-200 response for video {video_title} (attempt {attempt}/{retries}): {response.status}")
+        except Exception as e:
+            logger.error(f"Error fetching video URL for {video_title} (attempt {attempt}/{retries}): {str(e)}")
+        if attempt < retries:
+            await asyncio.sleep(delay * attempt)  # Exponential backoff
+    logger.error(f"Failed to fetch video URL for {video_title} after {retries} attempts")
+    return None
 
 async def collect_topic_contents(session, topic, subject, batch_id, token):
     result = []
@@ -127,34 +148,30 @@ async def collect_topic_contents(session, topic, subject, batch_id, token):
 
     # Videos
     if isinstance(videos, list) and videos:
-        found_any = False
         video_tasks = [get_video_url(session, video, batch_id) for video in reversed(videos)]
         video_urls = await asyncio.gather(*video_tasks, return_exceptions=True)
         for video, url in zip(reversed(videos), video_urls):
             if isinstance(url, str) and url:
                 video_title = video.get('video_title', 'Unknown Title')
                 result.append(f"{video_title}: {url}")
-                found_any = True
+
     # Notes
     if isinstance(notes, list) and notes:
-        found_any = False
         for note in reversed(notes):
             title = note.get('title', 'Unknown Title')
             download_url = note.get('download_url')
             if download_url:
                 result.append(f"{title}: {download_url}")
-                found_any = True
 
     # DPPs
     if isinstance(dpps, list) and dpps:
-        found_any = False
         for dpp in reversed(dpps):
             title = dpp.get('title', 'Unknown Title')
             download_url = dpp.get('download_url')
             if download_url:
                 result.append(f"{title}: {download_url}")
-                found_any = True
-                return "\n".join(result)
+
+    return "\n".join(result) if result else ""
 
 def create_progress_bar(progress, total, width=20):
     """Create a text-based progress bar."""
@@ -220,8 +237,8 @@ async def batch_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     topic_contents = await asyncio.gather(*topic_tasks, return_exceptions=True)
 
                     for idx, content in enumerate(topic_contents):
-                        if isinstance(content, str):
-                            f.write(content)
+                        if isinstance(content, str) and content:
+                            f.write(f"{content}\n")
                         # Update progress less frequently to avoid Telegram rate limits
                         if (idx + 1) % max(1, len(topics) // 5) == 0 or idx == len(topics) - 1:
                             progress = (subject_count - 1 + (idx + 1) / len(topics)) / total_subjects
@@ -248,7 +265,7 @@ async def batch_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     # Replace 'YOUR_BOT_TOKEN' with your actual bot token
-    application = Application.builder().token("7549640350:AAFp-7vzfhRIo856b-f_gEilKIoeS9KPL5E").build()
+    application = Application.builder().token("7931405874:AAGodglFGX3zOG49z5dxMff_GpaNLgxZ9OE").build()
 
     # Register handlers
     application.add_handler(CommandHandler("start", start))
