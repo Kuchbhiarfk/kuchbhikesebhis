@@ -1,8 +1,10 @@
+import aiohttp
+import asyncio
+import re
 import requests
 import urllib.parse
 from bs4 import BeautifulSoup
 import os
-import asyncio
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -34,6 +36,53 @@ cookies = {
     "auth_token": "cu7oiBffDQbRGx7%2FOhKylmKZYPBubC4Euenu4PkHPj%2FOyu1vuQDaiYALB5VP7gcznDf2arZE%2FMI1T3zVK6YvKhr5NRrGdctre17tEg4sf2zG%2FZFA%2BwR3mqrLd6HV8snqS9BMH50aC1D14G%2Fz%2B1gMtXXpIH43teFekVPQ0d2HX5WxNuUmnlsiOMpkBJccB4Xj428%2F7qxg5AHFhs%2BfwgdAgn6IY%2BZh5Lpm72ZNigTYMi0Q87giFgAV0pK3FFdE%2Fn%2B%2B2CKM9cTIKvFLZpcasYnTmnwkrxTocARP4GZkd6KjlcyrVItczal568TmZZFvVLKF7%2BAtgQ%2BLty%2Fio1pNhnvPszppVtjetp8H9GnV1A%2FAoVAOqgUmHSA1jForzfYx4K9HnyDfPA14qqiVdSuDmbZeWrB7GUOxlpdKyqa6HrcWNrfKnVy6tT04h9rj8i%2FO2oakF%2F8pPHJ4NyJQG03rkxKHsSjzg2OZ2FcB7mW6Zb31QWMq09YrT5nQ00pqBhbUS4loXEnQDC6ry6LuRSpRj%2FS5jLnh%2FiFDmx7uFK7zm28pO2Gh382DSW5OIfYegF46WQlefcyv144nNKmr3h2YjgxjNoHD0aGqBdnh%2BxdOdqrBAyzqhOPO8E7%2FVN1Jx2qdp9ZtyttCcKfTN6fXdogZqcKGvw5pOhoKpWPnNM8JPQaHROM%3D"
 }
 
+# ---------- URL Replacement Logic from First Code ----------
+async def replace_url(url, raw_text2="720"):
+    """Replace URLs containing 'sec-prod-mediacdn.pw.live' with a new URL from the API."""
+    if "sec-prod-mediacdn.pw.live" in url:
+        max_retries = 3
+        retry_delay = 2  # Delay in seconds between retries
+
+        for attempt in range(max_retries):
+            try:
+                # Extract base path and query parameters
+                base_path = url.split('?')[0].replace('master.mpd', '')
+                query_params = url.split('?')[1] if '?' in url else ''
+                # Construct new m3u8 URL
+                new_url = f"{base_path}hls/{raw_text2}/main.m3u8" + (f"?{query_params}" if query_params else '')
+
+                # Prepare API request
+                api_urls = "https://live-api-yztz.onrender.com/api/create_stream"
+                payload = {"m3u8_url": new_url}
+                headers = {"Content-Type": "application/json"}
+
+                # Send async POST request
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(api_urls, json=payload, headers=headers) as response:
+                        if response.status == 200:
+                            response_data = await response.json()
+                            # Check for required keys
+                            if all(key in response_data for key in ['manifest_url', 'stream_id', 'expires_at', 'token']):
+                                return f"https://live-api-yztz.onrender.com{response_data['manifest_url']}"
+                        # Retry if response is not successful
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                        continue
+            except aiohttp.ClientError as e:
+                logger.error(f"Client error on attempt {attempt + 1} for URL {url}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt + 1} for URL {url}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                continue
+        logger.error(f"Failed to replace URL after {max_retries} attempts: {url}")
+        return url  # Return original URL if all retries fail
+    return url  # Return unchanged URL if it doesn't match the condition
+
+# ---------- Functions from Second Code ----------
 def get_topics(subject, batch_id, token):
     topics = []
     page = 1
@@ -55,11 +104,11 @@ def get_topics(subject, batch_id, token):
                 if data.get("success") and isinstance(data.get("data"), list):
                     if not data["data"]:
                         logger.info(f"No more topics found for subject {subject['_id']} ({subject['slug']}) on page {page}")
-                        return topics  # Exit if no more topics
+                        return topics
                     topics.extend(data["data"])
                     logger.info(f"Fetched {len(data['data'])} topics for subject {subject['_id']} ({subject['slug']}) on page {page}")
                     page += 1
-                    break  # Exit retry loop on success
+                    break
                 else:
                     logger.error(f"Invalid topics response for subject {subject['_id']} ({subject['slug']}) on page {page}: {data}")
                     attempt += 1
@@ -68,7 +117,7 @@ def get_topics(subject, batch_id, token):
                         time.sleep(retry_delay)
                     else:
                         logger.error(f"Failed to fetch topics for subject {subject['_id']} ({subject['slug']}) on page {page} after {max_retries} attempts")
-                        return topics  # Return what we have
+                        return topics
             except Exception as e:
                 logger.error(f"Error fetching topics for subject {subject['_id']} ({subject['slug']}) on page {page}: {e}")
                 attempt += 1
@@ -77,12 +126,7 @@ def get_topics(subject, batch_id, token):
                     time.sleep(retry_delay)
                 else:
                     logger.error(f"Failed to fetch topics for subject {subject['_id']} ({subject['slug']}) on page {page} after {max_retries} attempts")
-                    return topics  # Return what we have
-
-    if topics:
-        logger.info(f"Total {len(topics)} topics fetched for subject {subject['_id']} ({subject['slug']})")
-    else:
-        logger.info(f"No topics found for subject {subject['_id']} ({subject['slug']})")
+                    return topics
     return topics
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -201,7 +245,7 @@ def get_video_url(video, batch_id):
     logger.error(f"Failed to extract video URL for {video_title} after {max_retries} attempts")
     return None
 
-def collect_topic_contents(topic, subject, batch_id, token):
+async def collect_topic_contents(topic, subject, batch_id, token):
     result = []
     name = topic.get("name", "No Name")
     slug = topic.get("slug", "")
@@ -218,7 +262,10 @@ def collect_topic_contents(topic, subject, batch_id, token):
             video_title = video.get('video_title', 'Unknown Title')
             real_url = get_video_url(video, batch_id)
             if real_url:
-                result.append(f"{video_title}: {real_url}")
+                # Replace URL if it contains sec-prod-mediacdn.pw.live
+                new_url = await replace_url(real_url)
+                result.append(f"{video_title}: {new_url}")
+                logger.info(f"Processed video {video_title}: {new_url}")
             else:
                 logger.warning(f"No valid URL extracted for video {video_title} in topic {name}")
     else:
@@ -233,6 +280,7 @@ def collect_topic_contents(topic, subject, batch_id, token):
             download_url = note.get('download_url')
             if download_url:
                 result.append(f"{title}: {download_url}")
+                logger.info(f"Added note {title}: {download_url}")
             else:
                 logger.warning(f"No download URL for note {title} in topic {name}")
     else:
@@ -247,6 +295,7 @@ def collect_topic_contents(topic, subject, batch_id, token):
             download_url = dpp.get('download_url')
             if download_url:
                 result.append(f"{title}: {download_url}")
+                logger.info(f"Added DPP {title}: {download_url}")
             else:
                 logger.warning(f"No download URL for DPP {title} in topic {name}")
     else:
@@ -287,7 +336,7 @@ async def batch_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subjects = fetch_subjects(batch_id, token)
     if not subjects:
         await update.message.reply_text("No subjects found or request failed.")
-        logger.error("No subjects found or request failed for batch_id {batch_id}")
+        logger.error(f"No subjects found or request failed for batch_id {batch_id}")
         return
 
     # Store batch_id and filename in user_data for later use
@@ -445,7 +494,7 @@ async def handle_topic_selection(update: Update, context: ContextTypes.DEFAULT_T
             for topic in selected_topics:
                 topic_count += 1
                 logger.info(f"Processing topic {topic_count}/{total_topics}: {topic.get('name', 'No Name')}")
-                topic_content = collect_topic_contents(topic, selected_subject, batch_id, token)
+                topic_content = await collect_topic_contents(topic, selected_subject, batch_id, token)
                 if topic_content:
                     f.write(f"{topic_content}\n")
                     content_written = True
@@ -514,7 +563,7 @@ async def handle_topic_selection(update: Update, context: ContextTypes.DEFAULT_T
 
 async def main():
     # Replace with your actual bot token
-    application = Application.builder().token("8110893329:AAGhPnxf0dk4WaXvMPrnEZRlbveJyrntizk").build()  # Register handlers
+    application = Application.builder().token("8110893329:AAGhPnxf0dk4WaXvMPrnEZRlbveJyrntizk").build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("batch_id", batch_id))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
