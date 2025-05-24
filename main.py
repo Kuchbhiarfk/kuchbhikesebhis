@@ -172,7 +172,7 @@ async def collect_topic_contents(topic, subject, batch_id, token, context: Conte
                     delay = 0  # No delay for the first URL
                 else:
                     if current_last_content_type == 'video':
-        delay = 480
+                       delay = 480
                     else:
                         delay = 60 if current_last_content_type in ('note', 'dpp') else 480
 
