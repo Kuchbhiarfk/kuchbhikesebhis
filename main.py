@@ -514,7 +514,7 @@ async def handle_topic_selection(update: Update, context: ContextTypes.DEFAULT_T
 
 async def main():
     # Replace with your actual bot token
-    application = Application.builder().token("8110893329:AAGhPnxf0dk4WaXvMPrnEZRlbveJyrntizk").b  # Register handlers
+    application = Application.builder().token("7549640350:AAFp-7vzfhRIo856b-f_gEilKIoeS9KPL5E").build()  # Register handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("batch_id", batch_id))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
