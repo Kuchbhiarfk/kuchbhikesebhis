@@ -46,7 +46,7 @@ async def replace_url(url, raw_text2="720"):
         for attempt in range(max_retries):
             try:
                 # Extract base path and query parameters
-                base_path = url.split('?')[0].replace('master.mpd', '')
+                base_path = url.split('?')[0].replace('master.m3u8', '').replace('master.mpd', '')
                 query_params = url.split('?')[1] if '?' in url else ''
                 # Construct new m3u8 URL
                 new_url = f"{base_path}hls/{raw_text2}/main.m3u8" + (f"?{query_params}" if query_params else '')
