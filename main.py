@@ -33,7 +33,7 @@ cookies = {
     "_clck": "1hjjwnc|2|fw3|0|1967",
     "verified_task": "dHJ1ZQ==",
     "countdown_end_time": "MTc0Nzk4MTkwNTU3OA==",
-    "auth_token": "cu7oiBffDQbRGx7%2FOhKylmKZYPBubC4Euenu4PkHPj%2FOyu1vuQDaiYALB5VP7gcznDf2arZE%2FMI1T3zVK6YvKhr5NRrGdctre17tEg4sf2zG%2FZFA%2BwR3mqrLd6HV8snqS9BMH50aC1D14G%2Fz%2B1gMtXXpIH43teFekVPQ0d2HX5WxNuUmnlsiOMpkBJccB4Xj428%2F7qxg5AHFhs%2BfwgdAgn6IY%2BZh5Lpm72ZNigTYMi0Q87giFgAV0pK3FFdE%2Fn%2B%2B2CKM9cTIKvFLZpcasYnTmnwkrxTocARP4GZkd6KjlcyrVItczal568TmZZFvVLKF7%2BAtgQ%2BLty%2Fio1pNhnvPszppVtjetp8H9GnV1A%2FAoVAOqgUmHSA1jForzfYx4K9HnyDfPA14qqiVdSuDmbZeWrB7GUOxlpdKyqa6HrcWNrfKnVy6tT04h9rj8i%2FO2oakF%2F8pPHJ4NyJQG03rkxKHsSjzg2OZ2FcB7mW6Zb31QWMq09YrT5nQ00pqBhbUS4loXEnQDC6ry6LuRSpRj%2FS5jLnh%2FiFDmx7uFK7zm28pO2Gh382DSW5OIfYegF46WQlefcyv144nNKmr3h2YjgxjNoHD0aGqBdnh%2BxdOdqrBAyzqhOPO8E7%2FVN1Jx2qdp9ZtyttCcKfTN6fXdogZqcKGvw5pOhoKpWPnNM8JPQaHROM%3D"
+    "auth_token": "cu7oiBffDQbRGx7%2FOhKylmKZYPBubC4Euenu4PkHPj%2FOyu1vuQDaiYALB5VP7gczSAQBjSqfJ3SBq1WpYsmlj6v160qe0hPhJLSgW5ThfaUJluJYf6bj1rMnlwQU80k6hu1ZNhfXkcizUlhFOOt%2B%2B7Hyw%2Bu0tlqpTIAFnibw3CZWjYWs0Hz4kn8h58RqV58oT7MrKQAbrOcwRlAS97VJIaOwVHiIzAgSxtxItt%2FH3YizlwC4V8rXkMD4sXg5g%2Bu0kMpv2ICS3S8d38c9j8yMH7GCZSlvYBOfARa9lbj%2F56rJwE5n5tSWTlio9Qe6NNuAxYkk7LvkMyC2V6%2FzDNU4nSj0va5yM6K5g0CoZBIitrr5JpQKOZWcRK%2FvIi%2B90R%2FPNrj%2BsVLFRuxLGOoyOjz3iFfERENo6YyTQOyItHQ7GTDZ9asXa9%2BvakPIB2czslSiOqSZEBZfh1HQEOJ0BIwPCgyTh1d6bt57SmBhwioao7m2zxbeCG4N7vOiFvOCPzsB3gfnkBeVjd1bpwv2iav98gxR4xt4NfKAToZYepehcG5go3irc2Ro1qDTHzrJh1quigbky98Ks9hM%2FOx%2BHj3SBK%2Bkxxh9l5AvINTQOcHVae4d0xnVcg6o5INf5OZLLZUDa2at2F5iheCnXLti5i1lgHn%2BiO9vVHyNnQCc228LbYk%3D"
 }
 
 # ---------- URL Replacement Logic from First Code ----------
@@ -420,7 +420,7 @@ async def handle_subject_selection(update: Update, context: ContextTypes.DEFAULT
     topics_filename = f"topics_{selected_subject['slug']}.txt"
     with open(topics_filename, "w", encoding="utf-8") as f:
         for i, topic in enumerate(topics, 1):
-            f.write(f"{i} {topic['_id']} - {topic['name']}\n")
+            f.write(f"{i} {topic['name']}\n")
     logger.info(f"Saved topics to {topics_filename}")
 
     # Send the topics file
