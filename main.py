@@ -32,8 +32,8 @@ headers = {
 cookies = {
     "_clck": "1hjjwnc|2|fw3|0|1967",
     "verified_task": "dHJ1ZQ==",
-    "countdown_end_time": "MTc0ODI1OTI3OTc0NA==",
-    "auth_token": "cu7oiBffDQbRGx7%2FOhKylmKZYPBubC4Euenu4PkHPj%2FOyu1vuQDaiYALB5VP7gczSAQBjSqfJ3SBq1WpYsmlj6v160qe0hPhJLSgW5ThfaUJluJYf6bj1rMnlwQU80k6hu1ZNhfXkcizUlhFOOt%2B%2B7Hyw%2Bu0tlqpTIAFnibw3CZWjYWs0Hz4kn8h58RqV58oT7MrKQAbrOcwRlAS97VJIaOwVHiIzAgSxtxItt%2FH3YizlwC4V8rXkMD4sXg5g%2Bu0kMpv2ICS3S8d38c9j8yMH7GCZSlvYBOfARa9lbj%2F56rJwE5n5tSWTlio9Qe6NNuAxYkk7LvkMyC2V6%2FzDNU4nSj0va5yM6K5g0CoZBIitrr5JpQKOZWcRK%2FvIi%2B90R%2FPNrj%2BsVLFRuxLGOoyOjz3iFfERENo6YyTQOyItHQ7GTDZ9asXa9%2BvakPIB2czslSiOqSZEBZfh1HQEOJ0BIwPCgyTh1d6bt57SmBhwioao7m2zxbeCG4N7vOiFvOCPzsB3gfnkBeVjd1bpwv2iav98gxR4xt4NfKAToZYepehcG5go3irc2Ro1qDTHzrJh1quigbky98Ks9hM%2FOx%2BHj3SBK%2Bkxxh9l5AvINTQOcHVae4d0xnVcg6o5INf5OZLLZUDa2at2F5iheCnXLti5i1lgHn%2BiO9vVHyNnQCc228LbYk%3D"
+    "countdown_end_time": "MTc0ODQyMTMyNDU4OQ==",
+    "auth_token": "cu7oiBffDQbRGx7%2FOhKylmKZYPBubC4Euenu4PkHPj%2FOyu1vuQDaiYALB5VP7gczRXmq%2F2CqgJFufvKe1w%2BYhDWKzdEJsZBNeBbO70%2B2v3lFdUnTlETZCtBoBV1H38h7M8R5yHfTQu7RK8nag9aAOpqEwFY3A72xxmFoqOStRBqyKu969EQCUCNvK9Q19UGlnfmJ0EaIbt1fWrdP2PZ%2BsWKGizJDCPr5eclIj4a%2FBX9hbSUUjFtpcg7Zs0BWzneIjrzs8%2Bnt2KE48q85GDjLSWRwmqkgE9Nk2gpeAm9vV1k9yXmll6RDQWiM1spenLjp4nxfxoonpIZ%2FkFE%2FzFX6zKmGjYx6Yv4wztNGQTJbww3VgTrncyV7c14NOLMRK%2BFoc9doAWh6dwfZaPtuSXlfmWz5eA5U4eomsRYT7EpSFQCbyPwfP%2BNF6ilEDeRaVOSBtERiCYMLfw1Kr%2Bi9OQjCxuNQgw%2BvST45pbxYEkwcN%2FsRF2UMLr5GxcFUUuFtkuey%2BP%2FRqGVmFCnFEtHAlmriWGrZ366abRIRRimiT30jWx3pedW9TST%2FP2FaEcEW2DFYoPGzWYKUnMtotW5bnaiw%2FVZWHFpGGO6MuQ7lS09DkvfWznyDZhIshPKaP6Ui513U3ACMEu4nh%2FRFulDXPZHTwd748halrb7Ua8ucOyqINU0%3D"
 }
 
 # ---------- URL Replacement Logic from First Code ----------
@@ -563,7 +563,7 @@ async def handle_topic_selection(update: Update, context: ContextTypes.DEFAULT_T
 
 async def main():
     # Replace with your actual bot token
-    application = Application.builder().token("8110893329:AAGhPnxf0dk4WaXvMPrnEZRlbveJyrntizk").build()
+    application = Application.builder().token("8110893329:AAFZ6TNgx43lC5O7uNvzk_MkrYMP2NGvHWU").build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("batch_id", batch_id))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
