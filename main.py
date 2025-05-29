@@ -39,7 +39,7 @@ cookies = {
 # ---------- URL Replacement Logic from First Code ----------
 async def replace_url(url, raw_text2="720"):
     """Replace URLs containing 'sec-prod-mediacdn.pw.live' with a new URL from the API."""
-    if "sec-prod-mediacdn.pw.live" in url:
+    if "bhosdichod" in url:
         max_retries = 3
         retry_delay = 2  # Delay in seconds between retries
 
