@@ -558,6 +558,7 @@ async def main():
     try:
         await application.initialize()
         await application.start()
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         await asyncio.Event().wait()
     except Exception as e:
         logger.error(f"Error running bot: {e}")
