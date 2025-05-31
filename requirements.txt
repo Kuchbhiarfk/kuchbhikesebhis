@@ -9,7 +9,7 @@ requests==2.26.0
 motor
 pymongo==4.8.0
 beautifulsoup4
-
+psutil
 
 
 
