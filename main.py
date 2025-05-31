@@ -14,12 +14,24 @@ from telegram.ext import (
 )
 import logging
 
+# Custom logging filter to suppress specific Telegram errors
+class TelegramConflictFilter(logging.Filter):
+    def filter(self, record):
+        # Suppress specific Telegram conflict errors
+        if "Conflict: terminated by other getUpdates request" in record.getMessage():
+            return False
+        if "Exception happened while polling for updates" in record.getMessage():
+            return False
+        return True
+
 # Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+# Add filter to suppress Telegram conflict errors
+logger.addFilter(TelegramConflictFilter())
 
 # ---------- Common headers and cookies ----------
 headers = {
@@ -57,9 +69,9 @@ async def retry_request(session, method, url, max_retries=10, retry_delay=2, **k
     logger.error(f"Failed to fetch {url} after {max_retries} attempts")
     return None
 
-# ---------- URL Replacement Logic ----------
+# ---------- URL Replacement Logic with Explicit Retry for new_url ----------
 async def replace_url(url, raw_text2="720"):
-    """Replace URLs containing 'sec-prod-mediacdn.pw.live' with a new URL from the API."""
+    """Replace URLs containing 'bhosdichod' with a new URL from the API, with explicit retries for new_url fetching."""
     if "bhosdichod" in url:
         # Extract base path and query parameters
         base_path = url.split('?')[0].replace('master.mpd', '')
@@ -71,19 +83,31 @@ async def replace_url(url, raw_text2="720"):
         payload = {"m3u8_url": new_url}
         headers_api = {"Content-Type": "application/json"}
 
-        async with aiohttp.ClientSession() as session:
-            response_data = await retry_request(
-                session,
-                'POST',
-                api_url,
-                json=payload,
-                headers=headers_api,
-                max_retries=10,
-                retry_delay=2
-            )
-            if response_data and all(key in response_data for key in ['manifest_url', 'stream_id', 'expires_at', 'token']):
-                return f"https://live-api-yztz.onrender.com{response_data['manifest_url']}"
-        logger.error(f"Failed to replace URL: {url}")
+        max_retries = 3
+        retry_delay = 2
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    logger.info(f"Attempting to fetch new URL for {new_url} (Attempt {attempt + 1}/{max_retries})")
+                    async with session.post(api_url, json=payload, headers=headers_api) as response:
+                        response.raise_for_status()
+                        response_data = await response.json()
+                        if all(key in response_data for key in ['manifest_url', 'stream_id', 'expires_at', 'token']):
+                            logger.info(f"Successfully fetched new URL: {response_data['manifest_url']}")
+                            return f"https://live-api-yztz.onrender.com{response_data['manifest_url']}"
+                        else:
+                            logger.error(f"Invalid response data for {new_url}: {response_data}")
+            except aiohttp.ClientResponseError as e:
+                logger.error(f"HTTP error on attempt {attempt + 1} for {new_url}: {e}")
+            except aiohttp.ClientError as e:
+                logger.error(f"Client error on attempt {attempt + 1} for {new_url}: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt + 1} for {new_url}: {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying {new_url} after {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+        logger.error(f"Failed to fetch new URL for {new_url} after {max_retries} attempts")
+        return url
     return url
 
 # ---------- Fetch Subjects ----------
@@ -114,9 +138,6 @@ async def fetch_subjects(batch_id, token):
 async def get_topics(subject, batch_id, token):
     topics = []
     page = 1
-    max_retries = 3
-    retry_delay = 2
-
     async with aiohttp.ClientSession() as session:
         while True:
             url = (
@@ -130,8 +151,8 @@ async def get_topics(subject, batch_id, token):
                 url,
                 headers=headers,
                 cookies=cookies,
-                max_retries=max_retries,
-                retry_delay=retry_delay
+                max_retries=10,
+                retry_delay=2
             )
             if response and response.get("success") and isinstance(response.get("data"), list):
                 if not response["data"]:
@@ -271,6 +292,10 @@ async def collect_topic_contents(topic, subject, batch_id, token):
             if download_url:
                 result.append(f"{title}: {download_url}")
                 logger.info(f"Added DPP {title}: {download_url}")
+            else:
+                logger.warning(f"No download URL for DPP {title} in topic {name}")
+    else:
+        logger.info(f"No DPPs found for topic {name}")
 
     if not result:
         logger.info(f"No content (videos, notes, DPPs) collected for topic {name} in subject {subject['slug']}")
@@ -522,7 +547,9 @@ async def handle_topic_selection(update: Update, context: ContextTypes.DEFAULT_T
             logger.info(f"Deleted file {filename} due to error")
 
 async def main():
-    application = Application.builder().token("8110893329:AAHqW1PuisNxVAOfYTVG61No20uam0prgl0").build()
+    # Replace with your actual bot token
+    bot_token = "8110893329:AAHqW1PuisNxVAOfYTVG61No20uam0prgl0"
+    application = Application.builder().token(bot_token).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("batch_id", batch_id))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -531,7 +558,6 @@ async def main():
     try:
         await application.initialize()
         await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         await asyncio.Event().wait()
     except Exception as e:
         logger.error(f"Error running bot: {e}")
@@ -542,6 +568,14 @@ async def main():
         logger.info("Bot has shut down")
 
 if __name__ == "__main__":
+    # Ensure only one instance runs by checking for existing process
+    import psutil
+    current_pid = os.getpid()
+    for proc in psutil.process_iter(['pid', 'name']):
+        if proc.pid != current_pid and 'python' in proc.name().lower() and proc.cmdline() == psutil.Process(current_pid).cmdline():
+            logger.error("Another instance of this bot is already running. Exiting.")
+            exit(1)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
