@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 logger.addFilter(TelegramConflictFilter())
 
 # MongoDB setup
-MONGO_URI = "mongodb://localhost:27017"  # Replace with your MongoDB URI
+MONGO_URI = "mongodb+srv://namanjain123eudhc:opmaster@cluster0.5iokvxo.mongodb.net/?retryWrites=true&w=majority"  # Replace with your MongoDB URI
 client = MongoClient(MONGO_URI)
-db = client["telegram_bot"]
+db = client["mc_bot"]
 token_collection = db["auth_tokens"]
 
 # ---------- Common headers and cookies ----------
