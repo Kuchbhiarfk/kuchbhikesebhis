@@ -832,7 +832,7 @@ async def process_account(email, password, showname):
                     messages.append(
                         f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                         f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
-                        f"<b>🔥 Restarted Successful</b> ➣ {'🟢' if service_success else '🔴'}\n"
+                        f"<b>🔥 Restarted Successful</b> ➣ {'🟢' if service_success else '🔴'}\n\n"
                         f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
                         f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
                         f"<b>------------------------------------------------</b>\n"
