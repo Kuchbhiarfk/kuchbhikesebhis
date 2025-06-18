@@ -864,10 +864,10 @@ async def send_or_update_start_message(context: ContextTypes.DEFAULT_TYPE, db):
     text = "<b>𝐇𝐞𝐥𝐥𝐨 𝐌𝐲 𝐃𝐞𝐚𝐫 𝐅𝐫𝐢𝐞𝐧𝐝 🥰</b>\n\n" \
            "<blockquote><b>Now you can Restart Any bot which Stops working 🥲\n" \
            "Please First Check Bot Stops or Not 🙏</b></blockquote>\n\n" \
-           "<b>𝐎𝐔𝐑 𝐖𝐄𝐁𝐒𝐈𝐓𝐄 —> <a href='https://yashyasag.github.io/hiddens_officials'>𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 🕊</a></b>\n" /
-           "<b>━━━━━━━━━━━━━━━━━━━━━━𖨠</b>\n" /
-           "<b>Credit Goes to <a href='https://t.me/HACKHEISTBOT'>𝗛𝗔𝗖𝗞𝗛𝗘𝗜𝗦𝗧 😈</a></b>\n" /
-           "<b>━━━━━━━━━━━━━━━━━━━━━━𖨠</b>" /   
+           "<b>𝐎𝐔𝐑 𝐖𝐄𝐁𝐒𝐈𝐓𝐄 —> <a href='https://yashyasag.github.io/hiddens_officials'>𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 🕊</a></b>\n" \
+           "<b>━━━━━━━━━━━━━━━━━━━━━━𖨠</b>\n" \
+           "<b>Credit Goes to <a href='https://t.me/HACKHEISTBOT'>𝗛𝗔𝗖𝗞𝗛𝗘𝗜𝗦𝗧 😈</a></b>\n" \
+           "<b>━━━━━━━━━━━━━━━━━━━━━━𖨠</b>" \
     message_id = await get_start_message_id(db)
     
     try:
