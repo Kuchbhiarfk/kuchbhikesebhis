@@ -986,7 +986,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             remaining_seconds = get_remaining_cooldown(db, showname, timestamps)
             if remaining_seconds is not None:
                 remaining_time = format_remaining_time(remaining_seconds)
-                popup_message = f"Hey, you can't restart {showname} now. Wait {remaining_time}."
+                popup_message = f"Hey Buddy 🥰, you can't restart {showname} now. Please wait {remaining_time} to Restart 😊."
                 logging.info(f"Attempting popup for {showname}, message: {popup_message}")
                 try:
                     await query.answer(popup_message, show_alert=True)
@@ -1000,7 +1000,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Send "Starting manual..." message with HTML and schedule deletion
             start_message = await query.message.reply_text(
-                f"<b>Starting doing restart for {showname}...</b>",
+                f"<b><a href='https://yashyasag.github.io/hiddens_officials'>Starting doing restart for {showname}...</a></b>",
                 parse_mode="HTML"
             )
             await schedule_start_message_deletion(context, CHANNEL_ID, start_message.message_id)
