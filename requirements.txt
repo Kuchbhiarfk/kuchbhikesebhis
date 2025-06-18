@@ -11,5 +11,6 @@ pymongo==4.8.0
 beautifulsoup4
 psutil
 pytz
+python-telegram-bot[job_queue]
 
 
