@@ -10,7 +10,7 @@ app = Flask(__name__)
 def start_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    loop.run_until_complete(telegram_main())
 
 threading.Thread(target=start_bot, daemon=True).start()
 
