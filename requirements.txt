@@ -10,6 +10,6 @@ motor
 pymongo==4.8.0
 beautifulsoup4
 psutil
-
+pytz
 
 
