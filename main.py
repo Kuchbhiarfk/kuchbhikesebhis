@@ -33,7 +33,7 @@ OWNER_ID = 7137002799
 COOLDOWN_SECONDS = 6 * 3600  # 6 hours
 
 # Message deletion delay for "Starting manual..." (2 minutes in seconds)
-START_MESSAGE_DELETE_DELAY = 120
+START_MESSAGE_DELETE_DELAY = 30
 
 async def init_db():
     """Initialize MongoDB connection."""
@@ -753,12 +753,11 @@ async def process_account(email, password, showname):
     now = datetime.now(pytz.UTC).astimezone(KOLKATA_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
     if error:
         messages.append(
-            f"<b>ACCOUNT</b> - {showname}\n"
-            f"<b>Name</b> - N/A\n"
-            f"<b>Successful</b> - No\n"
-            f"<b>Last Restarted</b> - {now}\n"
-            f"<b>Logged In At</b> - {login_time_str}\n"
-            f"<b>Error</b> - {error}"
+            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+            f"<b>Successful</b> - 🔴\n"
+            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
+            f"<b>Restarting Time</b> - {login_time_str}\n"
+            f"<b>Problem</b> - {error}"
         )
         return messages
     if id_token and workspace_id:
@@ -766,12 +765,11 @@ async def process_account(email, password, showname):
         match = re.match(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6})\d*Z", expires_at)
         if not match:
             messages.append(
-                f"<b>ACCOUNT</b> - {showname}\n"
-                f"<b>Name</b> - N/A\n"
-                f"<b>Successful</b> - No\n"
-                f"<b>Last Restarted</b> - {now}\n"
+                f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                f"<b>Successful</b> - 🔴\n"
+                f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                 f"<b>Logged In At</b> - {login_time_str}\n"
-                f"<b>Error</b> - Invalid timestamp format"
+                f"<b>Problem</b> - Invalid timestamp format"
             )
             return messages
         normalized_timestamp = match.group(1)
@@ -783,12 +781,12 @@ async def process_account(email, password, showname):
                 if error or not services:
                     error_msg = error or "No services found"
                     messages.append(
-                        f"<b>ACCOUNT</b> - {showname}\n"
+                        f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                         f"<b>Name</b> - N/A\n"
                         f"<b>Successful</b> - No\n"
-                        f"<b>Last Restarted</b> - {now}\n"
+                        f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                         f"<b>Logged In At</b> - {login_time_str}\n"
-                        f"<b>Error</b> - {error_msg}"
+                        f"<b>Problem</b> - {error_msg}"
                     )
                     return messages
                 # Step 3: Process each service
@@ -799,12 +797,11 @@ async def process_account(email, password, showname):
                     now = datetime.now(pytz.UTC).astimezone(KOLKATA_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
                     if suspenders:
                         messages.append(
-                            f"<b>ACCOUNT</b> - {showname}\n"
-                            f"<b>Name</b> - {name}\n"
-                            f"<b>Successful</b> - No\n"
-                            f"<b>Last Restarted</b> - {now}\n"
+                            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"                    
+                            f"<b>Successful</b> - 🔴\n"
+                            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                             f"<b>Logged In At</b> - {login_time_str}\n"
-                            f"<b>Error</b> - Service is suspended ({suspenders})"
+                            f"<b>Problem</b> - Service is suspended ({suspenders})"
                         )
                         continue
                     # Step 4: Restart the service
@@ -813,48 +810,48 @@ async def process_account(email, password, showname):
                     if error or result is None:
                         error_msg = error or "No response from server"
                         messages.append(
-                            f"<b>ACCOUNT</b> - {showname}\n"
+                            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                             f"<b>Name</b> - {name}\n"
-                            f"<b>Successful</b> - No\n"
-                            f"<b>Last Restarted</b> - {now}\n"
+                            f"<b>Successful</b> - 🔴\n"
+                            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                             f"<b>Logged In At</b> - {login_time_str}\n"
-                            f"<b>Error</b> - {error_msg}"
+                            f"<b>Problem</b> - {error_msg}"
                         )
                         continue
                     service_success = "data" in result and "restartServer" in result["data"]
                     messages.append(
-                        f"<b>ACCOUNT</b> - {showname}\n"
+                        f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                         f"<b>Name</b> - {name}\n"
-                        f"<b>Successful</b> - {'Yes' if service_success else 'No'}\n"
-                        f"<b>Last Restarted</b> - {now}\n"
+                        f"<b>Successful</b> - {'🟢' if service_success else '🔴'}\n"
+                        f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                         f"<b>Logged In At</b> - {login_time_str}"
                     )
             else:
                 messages.append(
-                    f"<b>ACCOUNT</b> - {showname}\n"
+                    f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                     f"<b>Name</b> - N/A\n"
-                    f"<b>Successful</b> - No\n"
-                    f"<b>Last Restarted</b> - {now}\n"
+                    f"<b>Successful</b> - 🔴\n"
+                    f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                     f"<b>Logged In At</b> - {login_time_str}\n"
-                    f"<b>Error</b> - Token has expired"
+                    f"<b>Problem</b> - Token has expired"
                 )
         except ValueError as e:
             messages.append(
-                f"<b>ACCOUNT</b> - {showname}\n"
+                f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                 f"<b>Name</b> - N/A\n"
-                f"<b>Successful</b> - No\n"
-                f"<b>Last Restarted</b> - {now}\n"
+                f"<b>Successful</b> - 🔴\n"
+                f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                 f"<b>Logged In At</b> - {login_time_str}\n"
-                f"<b>Error</b> - Error parsing timestamp: {str(e)}"
+                f"<b>Problem</b> - Error parsing timestamp: {str(e)}"
             )
     else:
         messages.append(
-            f"<b>ACCOUNT</b> - {showname}\n"
+            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
             f"<b>Name</b> - N/A\n"
-            f"<b>Successful</b> - No\n"
-            f"<b>Last Restarted</b> - {now}\n"
+            f"<b>Successful</b> - 🔴\n"
+            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
             f"<b>Logged In At</b> - {login_time_str}\n"
-            f"<b>Error</b> - Failed to obtain idToken or workspace ID"
+            f"<b>Problem</b> - Sorry Not Working 🥺"
         )
     return messages
 
