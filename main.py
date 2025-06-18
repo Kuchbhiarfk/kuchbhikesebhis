@@ -861,7 +861,9 @@ async def create_keyboard(db):
 async def send_or_update_start_message(context: ContextTypes.DEFAULT_TYPE, db):
     """Send or update the start message in the channel with account buttons."""
     keyboard = await create_keyboard(db)
-    text = "<b>Select an account to restart its Render services:</b>"
+    text = "<b>𝐇𝐞𝐥𝐥𝐨 𝐌𝐲 𝐃𝐞𝐚𝐫 𝐅𝐫𝐢𝐞𝐧𝐝 🥰</b>\n\n"
+           "<blockquote><b>Now you can Restart Any bot which Stops working 🥲</b></blockquote>\n"
+           "<blockquote><b>Please First Check Bot Stops or Not 🙏</b></blockquote>"
     message_id = await get_start_message_id(db)
     
     try:
