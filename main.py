@@ -753,7 +753,7 @@ async def process_account(email, password, showname):
     now = datetime.now(pytz.UTC).astimezone(KOLKATA_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
     if error:
         messages.append(
-            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+            f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
             f"<b>Successful</b> - 🔴\n"
             f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
             f"<b>Restarting Time</b> - {login_time_str}\n"
@@ -765,7 +765,7 @@ async def process_account(email, password, showname):
         match = re.match(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6})\d*Z", expires_at)
         if not match:
             messages.append(
-                f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                 f"<b>Successful</b> - 🔴\n"
                 f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                 f"<b>Logged In At</b> - {login_time_str}\n"
@@ -781,7 +781,7 @@ async def process_account(email, password, showname):
                 if error or not services:
                     error_msg = error or "No services found"
                     messages.append(
-                        f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                        f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                         f"<b>Name</b> - N/A\n"
                         f"<b>Successful</b> - No\n"
                         f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
@@ -797,7 +797,7 @@ async def process_account(email, password, showname):
                     now = datetime.now(pytz.UTC).astimezone(KOLKATA_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
                     if suspenders:
                         messages.append(
-                            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"                    
+                            f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"                    
                             f"<b>Successful</b> - 🔴\n"
                             f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                             f"<b>Logged In At</b> - {login_time_str}\n"
@@ -810,7 +810,7 @@ async def process_account(email, password, showname):
                     if error or result is None:
                         error_msg = error or "No response from server"
                         messages.append(
-                            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                            f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                             f"<b>Name</b> - {name}\n"
                             f"<b>Successful</b> - 🔴\n"
                             f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
@@ -820,7 +820,7 @@ async def process_account(email, password, showname):
                         continue
                     service_success = "data" in result and "restartServer" in result["data"]
                     messages.append(
-                        f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                        f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                         f"<b>Name</b> - {name}\n"
                         f"<b>Successful</b> - {'🟢' if service_success else '🔴'}\n"
                         f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
@@ -828,7 +828,7 @@ async def process_account(email, password, showname):
                     )
             else:
                 messages.append(
-                    f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                    f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                     f"<b>Name</b> - N/A\n"
                     f"<b>Successful</b> - 🔴\n"
                     f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
@@ -837,7 +837,7 @@ async def process_account(email, password, showname):
                 )
         except ValueError as e:
             messages.append(
-                f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
                 f"<b>Name</b> - N/A\n"
                 f"<b>Successful</b> - 🔴\n"
                 f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
@@ -846,7 +846,7 @@ async def process_account(email, password, showname):
             )
     else:
         messages.append(
-            f"<b><blockquote>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+            f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
             f"<b>Name</b> - N/A\n"
             f"<b>Successful</b> - 🔴\n"
             f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
