@@ -2,7 +2,8 @@
 import asyncio
 import threading
 from flask import Flask
-from main import main
+from main import telegram_main
+
 
 app = Flask(__name__)
 
