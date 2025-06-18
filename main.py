@@ -754,10 +754,12 @@ async def process_account(email, password, showname):
     if error:
         messages.append(
             f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-            f"<b>Successful</b> - 🔴\n"
-            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-            f"<b>Restarting Time</b> - {login_time_str}\n"
-            f"<b>Problem</b> - {error}"
+            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+            f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+            f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+            f"<b>------------------------------------------------</b>\n"
+            f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"              
         )
         return messages
     if id_token and workspace_id:
@@ -766,10 +768,12 @@ async def process_account(email, password, showname):
         if not match:
             messages.append(
                 f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                f"<b>Successful</b> - 🔴\n"
-                f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-                f"<b>Logged In At</b> - {login_time_str}\n"
-                f"<b>Problem</b> - Invalid timestamp format"
+                f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+                f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+                f"<b>------------------------------------------------</b>\n"
+                f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"
             )
             return messages
         normalized_timestamp = match.group(1)
@@ -782,10 +786,12 @@ async def process_account(email, password, showname):
                     error_msg = error or "No services found"
                     messages.append(
                         f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                        f"<b>Successful</b> - No\n"
-                        f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-                        f"<b>Logged In At</b> - {login_time_str}\n"
-                        f"<b>Problem</b> - {error_msg}"
+                        f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                        f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+                        f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                        f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+                        f"<b>------------------------------------------------</b>\n"
+                        f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"
                     )
                     return messages
                 # Step 3: Process each service
@@ -796,10 +802,13 @@ async def process_account(email, password, showname):
                     now = datetime.now(pytz.UTC).astimezone(KOLKATA_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
                     if suspenders:
                         messages.append(
-                            f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"                    
-                            f"<b>Successful</b> - 🔴\n"
-                            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-                            f"<b>Logged In At</b> - {login_time_str}\n"
+                            f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
+                            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                            f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+                            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                            f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+                            f"<b>------------------------------------------------</b>\n"
+                            f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"
                             f"<b>Problem</b> - Service is suspended ({suspenders})"
                         )
                         continue
@@ -810,41 +819,56 @@ async def process_account(email, password, showname):
                         error_msg = error or "No response from server"
                         messages.append(
                             f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                            f"<b>Successful</b> - 🔴\n"
-                            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-                            f"<b>Logged In At</b> - {login_time_str}\n"
+                            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                            f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+                            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                            f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+                            f"<b>------------------------------------------------</b>\n"
+                            f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"
                             f"<b>Problem</b> - {error_msg}"
                         )
                         continue
                     service_success = "data" in result and "restartServer" in result["data"]
                     messages.append(
                         f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                        f"<b>Successful</b> - {'🟢' if service_success else '🔴'}\n"
-                        f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-                        f"<b>Logged In At</b> - {login_time_str}"
+                        f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                        f"<b>🔥 Restarted Successful</b> ➣ {'🟢' if service_success else '🔴'}\n"
+                        f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                        f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+                        f"<b>------------------------------------------------</b>\n"
+                        f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"                        
                     )
             else:
                 messages.append(
                     f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                    f"<b>Successful</b> - 🔴\n"
-                    f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-                    f"<b>Logged In At</b> - {login_time_str}\n"
+                    f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                    f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+                    f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                    f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+                    f"<b>------------------------------------------------</b>\n"
+                    f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"
                     f"<b>Problem</b> - Token has expired"
                 )
         except ValueError as e:
             messages.append(
                 f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                f"<b>Successful</b> - 🔴\n"
-                f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-                f"<b>Logged In At</b> - {login_time_str}\n"
+                f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+                f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+                f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+                f"<b>------------------------------------------------</b>\n"
+                f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"
                 f"<b>Problem</b> - Error parsing timestamp: {str(e)}"
             )
     else:
         messages.append(
             f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-            f"<b>Successful</b> - 🔴\n"
-            f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
-            f"<b>Logged In At</b> - {login_time_str}\n"
+            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+            f"<b>🔥 Restarted Successful</b> ➣ 🔴\n\n"
+            f"<b>━━━━━━━━━━━━━━━━━𖨠</b>\n\n"
+            f"<b>💝 𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> ⪼ {now}\n\n"
+            f"<b>------------------------------------------------</b>\n"
+            f"<b>🤩 𝗪𝗘𝗕𝗦𝗜𝗧𝗘𝗦 ⊱ <a href='https://yashyasag.github.io/hiddens_officials'>𝐂𝐋𝐈𝐂𝐊 𝐇𝐄𝐑𝐄 🥰</a></b>"
             f"<b>Problem</b> - Sorry Not Working 🥺"
         )
     return messages
@@ -864,7 +888,7 @@ async def send_or_update_start_message(context: ContextTypes.DEFAULT_TYPE, db):
     text = "<b>𝐇𝐞𝐥𝐥𝐨 𝐌𝐲 𝐃𝐞𝐚𝐫 𝐅𝐫𝐢𝐞𝐧𝐝 🥰</b>\n\n" \
            "<blockquote><b>Now you can Restart Any bot which Stops working 🥲\n" \
            "Please First Check Bot Stops or Not 🙏</b></blockquote>\n\n" \
-           "<b>𝐎𝐔𝐑 𝐖𝐄𝐁𝐒𝐈𝐓𝐄 —> <a href='https://yashyasag.github.io/hiddens_officials'>𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 🕊</a></b>\n" \
+           "<b>𝐎𝐔𝐑 𝐖𝐄𝐁𝐒𝐈𝐓𝐄 > <a href='https://yashyasag.github.io/hiddens_officials'>𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 🕊</a></b>\n\n" \
            "<b>━━━━━━━━━━━━━━━━━━━━━𖨠</b>\n" \
            "<b>Credit Goes to <a href='https://t.me/HACKHEISTBOT'>𝗛𝗔𝗖𝗞𝗛𝗘𝗜𝗦𝗧 😈</a></b>\n" \
            "<b>━━━━━━━━━━━━━━━━━━━━━𖨠</b>"
@@ -969,7 +993,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<b>𝐇𝐞𝐥𝐥𝐨 𝐌𝐲 𝐃𝐞𝐚𝐫 𝐅𝐫𝐢𝐞𝐧𝐝 🥰</b>\n\n" \
             "<blockquote><b>Now you can Restart Any bot which Stops working 🥲\n" \
             "Please First Check Bot Stops or Not 🙏</b></blockquote>\n\n" \
-            "<b>𝐎𝐔𝐑 𝐖𝐄𝐁𝐒𝐈𝐓𝐄 —> <a href='https://yashyasag.github.io/hiddens_officials'>𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 🕊</a></b>\n" \
+            "<b>𝐎𝐔𝐑 𝐖𝐄𝐁𝐒𝐈𝐓𝐄 > <a href='https://yashyasag.github.io/hiddens_officials'>𝗖𝗟𝗜𝗖𝗞 𝗛𝗘𝗥𝗘 🕊</a></b>\n\n" \
             "<b>━━━━━━━━━━━━━━━━━━━━━𖨠</b>\n" \
             "<b>Credit Goes to <a href='https://t.me/HACKHEISTBOT'>𝗛𝗔𝗖𝗞𝗛𝗘𝗜𝗦𝗧 😈</a></b>\n" \
             "<b>━━━━━━━━━━━━━━━━━━━━━𖨠</b>",
