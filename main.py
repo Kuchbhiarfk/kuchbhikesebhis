@@ -782,7 +782,6 @@ async def process_account(email, password, showname):
                     error_msg = error or "No services found"
                     messages.append(
                         f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                        f"<b>Name</b> - N/A\n"
                         f"<b>Successful</b> - No\n"
                         f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                         f"<b>Logged In At</b> - {login_time_str}\n"
@@ -811,7 +810,6 @@ async def process_account(email, password, showname):
                         error_msg = error or "No response from server"
                         messages.append(
                             f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                            f"<b>Name</b> - {name}\n"
                             f"<b>Successful</b> - 🔴\n"
                             f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                             f"<b>Logged In At</b> - {login_time_str}\n"
@@ -821,7 +819,6 @@ async def process_account(email, password, showname):
                     service_success = "data" in result and "restartServer" in result["data"]
                     messages.append(
                         f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                        f"<b>Name</b> - {name}\n"
                         f"<b>Successful</b> - {'🟢' if service_success else '🔴'}\n"
                         f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                         f"<b>Logged In At</b> - {login_time_str}"
@@ -829,7 +826,6 @@ async def process_account(email, password, showname):
             else:
                 messages.append(
                     f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                    f"<b>Name</b> - N/A\n"
                     f"<b>Successful</b> - 🔴\n"
                     f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                     f"<b>Logged In At</b> - {login_time_str}\n"
@@ -838,7 +834,6 @@ async def process_account(email, password, showname):
         except ValueError as e:
             messages.append(
                 f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-                f"<b>Name</b> - N/A\n"
                 f"<b>Successful</b> - 🔴\n"
                 f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
                 f"<b>Logged In At</b> - {login_time_str}\n"
@@ -847,7 +842,6 @@ async def process_account(email, password, showname):
     else:
         messages.append(
             f"<blockquote><b>🌟 𝗕𝗢𝗧 - {showname}</b></blockquote>\n"
-            f"<b>Name</b> - N/A\n"
             f"<b>Successful</b> - 🔴\n"
             f"<b>𝐋𝐚𝐬𝐭 𝐑𝐞𝐬𝐭𝐚𝐫𝐭𝐞𝐝</b> - {now}\n"
             f"<b>Logged In At</b> - {login_time_str}\n"
@@ -1006,7 +1000,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Send "Starting manual..." message with HTML and schedule deletion
             start_message = await query.message.reply_text(
-                f"<b>Starting manual restart for {showname}...</b>",
+                f"<b>Starting doing restart for {showname}...</b>",
                 parse_mode="HTML"
             )
             await schedule_start_message_deletion(context, CHANNEL_ID, start_message.message_id)
