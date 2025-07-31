@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import pytz
 
 BOT_TOKEN = "7880934596:AAEfqzl9obNHtF1aQ1hfjCrC5xzq3lVZqks" 
-MONGO_URI = "mongodb+srv://talkhackheist:gjC3mKbHfIW7tbRV@cluster0.x0z1qdc.mongodb.net/?retryWrites=true&w=majority"  # Replace with your MongoDB connection string
+MONGO_URI = "mongodb+srv://talkhackheist:gjC3mKbHfIW7tbRV@cluster0.x0z1qdc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"  # Replace with your MongoDB connection string
 TOKEN_API_URL = "https://api-accesstoken.vercel.app/"
 
 # Mapping of batch IDs to channel IDs
