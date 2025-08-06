@@ -403,17 +403,14 @@ async def handle_subjects_selection(update: Update, context: ContextTypes.DEFAUL
                 topics = await get_topics(subject, batch_id, token)
                 if not topics:
                     logger.warning(f"No topics found for subject {subject['slug']} ({subject['_id']})")
-                    f.write(f"\nSubject: {subject['slug']} ({subject['_id']})\nNo topics found.\n")
                     continue
 
                 total_topics = len(topics)
                 topic_count = 0
-                f.write(f"\nSubject: {subject['slug']} ({subject['_id']})\n")
                 for topic in topics:
                     topic_count += 1
                     topic_content = await collect_topic_contents(topic, subject, batch_id, token)
                     if topic_content:
-                        f.write(f"Topic: {topic.get('name', 'No Name')}\n")
                         f.write("\n".join(topic_content) + "\n")
                         content_written = True
                         logger.info(f"Written content for topic {topic.get('name', 'No Name')} in subject {subject['slug']}")
