@@ -12,5 +12,6 @@ beautifulsoup4
 psutil
 pytz
 python-telegram-bot[job_queue]
+bs4
 
 
