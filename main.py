@@ -248,11 +248,11 @@ async def cancel(update: Update, context):
 
 # Main
 def main():
-    bot_token = "7639794663:AAH36AfkV2O8MGddHKWvKKbHtpQPYIOfNzU"  # Replace with your bot token
+    bot_token = "7639794663:AAFD6UPSIfXpQjHsSmOY7HhEUWYITyJZIAs"  # Replace with your bot token
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    app = Application.builder().token(bot_token).build()
+    app = Application.builder().token(bot_token).read_timeout(60).write_timeout(60).build()
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('url', url_handler)],
         states={
