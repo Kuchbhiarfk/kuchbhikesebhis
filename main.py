@@ -52,9 +52,13 @@ def fetch_session_token():
 
 # Fetch URL with retries
 def fetch_url(url):
-    r = requests.get(url, headers=headers)
-    r.raise_for_status()
-    return r
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        return r
+    except Exception as e:
+        print(f"Error fetching URL {url}: {e}")
+        raise
 
 # Extract videos
 def fetch_videos(url, chapter_hash):
@@ -67,7 +71,8 @@ def fetch_videos(url, chapter_hash):
             f"{base_url + i.find('a')['href'] if i.find('a')['href'].startswith('/') else i.find('a')['href']}"
             for i in items
         ]
-    except:
+    except Exception as e:
+        print(f"Error fetching videos from {url}: {e}")
         return []
 
 # Extract notes
@@ -78,11 +83,20 @@ def fetch_notes(url, chapter_hash):
         items = soup.find_all('div', class_='item-box')[::-1]
         result = []
         for i in items:
-            note_link = i.find('a', class_='note-link')
-            if note_link:
-                result.append(f"{note_link.text.strip()}💀{hash_part}💀 : {note_link['href']}")
+            # Try finding note link with class 'note-link' or any anchor tag
+            note_link = i.find('a', class_='note-link') or i.find('a', href=lambda x: x and ('/notes' in x or '.pdf' in x))
+            note_name = i.find('div', class_='item-name') or i.find('a')
+            if note_link and note_name:
+                note_title = note_name.text.strip()
+                note_url = base_url + note_link['href'] if note_link['href'].startswith('/') else note_link['href']
+                result.append(f"{note_title}💀{chapter_hash}💀 : {note_url}")
+            else:
+                print(f"No note link or name found in item: {i}")
+        if not result:
+            print(f"No notes found at {url}")
         return result
-    except:
+    except Exception as e:
+        print(f"Error fetching notes from {url}: {e}")
         return []
 
 # Extract DPP
@@ -96,8 +110,13 @@ def fetch_dpp(url, chapter_hash):
             note_link = i.find('a', class_='note-link')
             if note_link:
                 result.append(f"{note_link.text.strip()}💀{chapter_hash}💀 : {note_link['href']}")
+            else:
+                print(f"No DPP link found in item: {i}")
+        if not result:
+            print(f"No DPPs found at {url}")
         return result
-    except:
+    except Exception as e:
+        print(f"Error fetching DPP from {url}: {e}")
         return []
 
 # Start command
@@ -159,12 +178,13 @@ async def url_handler(update: Update, context):
 def fetch_chapter_content(chap_link):
     try:
         # Extract chapter hash from the chapter link and remove underscores
-        chapter_hash = (chap_link.split('/')[-2] if '/stream/' in chap_link else chap_link.split('/')[-1]).replace(")", "]").replace("_", "").replace("\t", "").replace(":", "").replace("/", "").replace("+", "").replace("#", "").replace("|", "").replace("@", "").replace("*", "").replace(".", "").replace("https", "").replace("http", "")
+        chapter_hash = (chap_link.split('/')[-2] if '/stream/' in chap_link else chap_link.split('/')[-1]).replace('_', '')
         
         video_page = fetch_url(chap_link)
         soup_chap = BeautifulSoup(video_page.text, 'html.parser')
         video_tag = soup_chap.find('a', class_='video-link') or soup_chap.find('a', href=lambda x: x and '/videos' in x)
         if not video_tag:
+            print(f"No video tag found at {chap_link}")
             return ""
 
         videos_url = base_url + video_tag['href'] if video_tag['href'].startswith('/') else video_tag['href']
@@ -177,7 +197,8 @@ def fetch_chapter_content(chap_link):
         lines.extend(fetch_dpp(dpp_url, chapter_hash))
 
         return "\n".join([line.strip() for line in lines if line.strip()])
-    except:
+    except Exception as e:
+        print(f"Error processing chapter {chap_link}: {e}")
         return ""
 
 # Handle subject selection
@@ -219,10 +240,11 @@ async def select_subjects(update: Update, context):
 
             # Create subject-specific chapter list file
             subject_filename = f"{sub_name.replace(' ', '_')}_{uuid.uuid4()}.txt"
-            with open(subject_filename, "w", encoding="utf-8") as f:                
+            with open(subject_filename, "w", encoding="utf-8") as f:
+                f.write(f"Subject: {sub_name}\n\n")
                 for chap_name, chap_link in chapters:
                     # Extract the hash part from the URL and remove underscores
-                    hash_part = (chap_link.split('/')[-2] if '/stream/' in chap_link else chap_link.split('/')[-1]).replace(")", "]").replace("_", "").replace("\t", "").replace(":", "").replace("/", "").replace("+", "").replace("#", "").replace("|", "").replace("@", "").replace("*", "").replace(".", "").replace("https", "").replace("http", "")
+                    hash_part = (chap_link.split('/')[-2] if '/stream/' in chap_link else chap_link.split('/')[-1]).replace('_', '')
                     f.write(f"{chap_name} >> {hash_part}\n")
             subject_files.append(subject_filename)
 
@@ -267,7 +289,7 @@ async def cancel(update: Update, context):
 
 # Main
 def main():
-    bot_token = "7880934596:AAGh_QZQaXPFnZP6mVDIyV2tTkk58zsm64M"  # Replace with your bot token
+    bot_token = "7639794663:AAGG6KbmCQLNF_YkL8kM1JOpq3cE89JJ_mY"  # Replace with your bot token
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
