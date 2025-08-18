@@ -170,7 +170,7 @@ async def forward_messages_with_indexing(update: Update, context: ContextTypes.D
                     caption=formatted_caption,
                     parse_mode="HTML"
                 )
-                await asyncio.sleep(3)  # delay for video
+                await asyncio.sleep(8)  # delay for video
             elif msg.document:
                 sent = await context.bot.send_document(
                     chat_id=target_channel,
@@ -178,7 +178,7 @@ async def forward_messages_with_indexing(update: Update, context: ContextTypes.D
                     caption=formatted_caption,
                     parse_mode="HTML"
                 )
-                await asyncio.sleep(5)  # delay for document
+                await asyncio.sleep(8)  # delay for document
             else:
                 sent = await context.bot.copy_message(
                     chat_id=target_channel,
@@ -196,7 +196,7 @@ async def forward_messages_with_indexing(update: Update, context: ContextTypes.D
                 if rule["found"] is None and rule["chapter_id"].lower() in caption.lower():
                     rule["found"] = sent.message_id
 
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
             await context.bot.delete_message(chat_id=user_chat_id, message_id=msg.message_id)
 
             done += 1
