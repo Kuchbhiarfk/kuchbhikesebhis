@@ -764,7 +764,7 @@ async def handle_variables(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main function to run the bot
 def main():
     # Replace with your bot token or use environment variable
-    bot_token = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
+    bot_token = os.environ.get("BOT_TOKEN", "8165963555:AAHlBnctxtvvjFz8ZUDWzTYeWco50AKgqJo")
     
     # Create a new event loop for the current thread
     loop = asyncio.new_event_loop()
