@@ -19,10 +19,10 @@ import string
 from pymongo import MongoClient
 from pymongo.errors import ConnectionError
 
-# MongoDB configuration
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://")  # Replace with your MongoDB URI
-DB_NAME = "Cluster0"  # Replace with your database name
-COLLECTION_NAME = "render_accounts"
+# Configuration
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://")
+DB_NAME = "Cluster0"  # Matches appName in URI
+COLLECTION_NAME = "accounts"
 
 # Initialize MongoDB client
 try:
@@ -39,7 +39,7 @@ except ConnectionError as e:
 def load_accounts():
     try:
         accounts = list(accounts_collection.find({}))
-        # Remove MongoDB's '_id' field from each document to match previous JSON structure
+        # Remove MongoDB's '_id' field for compatibility
         for acc in accounts:
             acc.pop("_id", None)
         return accounts
@@ -50,7 +50,7 @@ def load_accounts():
 # Save accounts to MongoDB
 def save_accounts(accounts):
     try:
-        # Clear existing accounts and insert new ones to ensure consistency
+        # Clear existing accounts and insert new ones
         accounts_collection.delete_many({})
         if accounts:
             accounts_collection.insert_many(accounts)
@@ -526,6 +526,9 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
     while time.time() - start_time < timeout:
         response = requests.post(status_url, headers=status_headers, json=status_data)
         addon_on = True  # Deployment is active during polling
+        # Mask sensitive fields (uncomment to enable)
+        # masked_password = password[:4] + "****" if password else "N/A"
+        # masked_bot_token = bot_token[:4] + "****" if bot_token else "N/A"
         if response.status_code != 200:
             addon_on = False
             await context.bot.edit_message_text(
@@ -537,8 +540,8 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
                      f"Addon On - {addon_on}\n"
                      f"Display Name - {display_name}\n"
                      f"Email - {email}\n"
-                     f"Password - {password}\n"
-                     f"BOT_TOKEN - {bot_token}\n"
+                     f"Password - {password}\n"  # Use masked_password to mask
+                     f"BOT_TOKEN - {bot_token}\n"  # Use masked_bot_token to mask
                      f"OP_COMMAND - {op_command}\n"
                      f"NONOP_COMMAND - {nonop_command}\n"
                      f"Status request failed: {response.status_code} - {response.text}"
@@ -556,8 +559,8 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
                      f"Addon On - {addon_on}\n"
                      f"Display Name - {display_name}\n"
                      f"Email - {email}\n"
-                     f"Password - {password}\n"
-                     f"BOT_TOKEN - {bot_token}\n"
+                     f"Password - {password}\n"  # Use masked_password to mask
+                     f"BOT_TOKEN - {bot_token}\n"  # Use masked_bot_token to mask
                      f"OP_COMMAND - {op_command}\n"
                      f"NONOP_COMMAND - {nonop_command}\n"
                      f"Status error: {status_json['errors']}"
@@ -574,8 +577,8 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
                  f"Addon On - {addon_on}\n"
                  f"Display Name - {display_name}\n"
                  f"Email - {email}\n"
-                 f"Password - {password}\n"
-                 f"BOT_TOKEN - {bot_token}\n"
+                 f"Password - {password}\n"  # Use masked_password to mask
+                 f"BOT_TOKEN - {bot_token}\n"  # Use masked_bot_token to mask
                  f"OP_COMMAND - {op_command}\n"
                  f"NONOP_COMMAND - {nonop_command}"
         )
@@ -593,8 +596,8 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
              f"Addon On - {addon_on}\n"
              f"Display Name - {display_name}\n"
              f"Email - {email}\n"
-             f"Password - {password}\n"
-             f"BOT_TOKEN - {bot_token}\n"
+             f"Password - {password}\n"  # Use masked_password to mask
+             f"BOT_TOKEN - {bot_token}\n"  # Use masked_bot_token to mask
              f"OP_COMMAND - {op_command}\n"
              f"NONOP_COMMAND - {nonop_command}"
     )
@@ -602,9 +605,7 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
 # Global error handler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Log the error for debugging
         print(f"Update {update} caused error {context.error}")
-        # Notify the user
         if update and update.effective_message:
             await update.effective_message.reply_text(f"An error occurred: {str(context.error)}")
     except Exception as e:
@@ -724,6 +725,9 @@ async def handle_variables(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(error)
             return
         # Send initial deployment message
+        # Mask sensitive fields (uncomment to enable)
+        # masked_password = account["password"][:4] + "****" if account["password"] else "N/A"
+        # masked_bot_token = bot_token[:4] + "****" if bot_token else "N/A"
         message = await update.message.reply_text(
             f"Name - {random_name}\n"
             f"Server Url - {server_url}\n"
@@ -731,8 +735,8 @@ async def handle_variables(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Addon On - True\n"
             f"Display Name - {display_name}\n"
             f"Email - {account['email']}\n"
-            f"Password - {account['password']}\n"
-            f"BOT_TOKEN - {bot_token}\n"
+            f"Password - {account['password']}\n"  # Use masked_password to mask
+            f"BOT_TOKEN - {bot_token}\n"  # Use masked_bot_token to mask
             f"OP_COMMAND - {op_command}\n"
             f"NONOP_COMMAND - {nonop_command}"
         )
@@ -759,8 +763,8 @@ async def handle_variables(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Main function to run the bot
 def main():
-    # Replace with your bot token
-    bot_token = os.environ.get("BOT_TOKEN", "8165963555:AAHlBnctxtvvjFz8ZUDWzTYeWco50AKgqJo")
+    # Replace with your bot token or use environment variable
+    bot_token = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
     
     # Create a new event loop for the current thread
     loop = asyncio.new_event_loop()
