@@ -522,7 +522,7 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
 }"""
     }
     start_time = time.time()
-    timeout = 5 * 60  # 5 minutes in seconds
+    timeout = 10 * 60  # 5 minutes in seconds
     while time.time() - start_time < timeout:
         response = requests.post(status_url, headers=status_headers, json=status_data)
         addon_on = True  # Deployment is active during polling
@@ -584,7 +584,7 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
         )
         if status_state == "SUCCESS":
             return
-        await asyncio.sleep(15)
+        await asyncio.sleep(10)
     # Timeout reached
     addon_on = False
     await context.bot.edit_message_text(
