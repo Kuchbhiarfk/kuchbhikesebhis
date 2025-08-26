@@ -17,11 +17,11 @@ from telegram.ext import (
 import random
 import string
 from pymongo import MongoClient
-from pymongo.errors import ConnectionError
+from pymongo.errors import ConnectionFailure  # Updated to ConnectionFailure
 
 # Configuration
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://")
-DB_NAME = "Cluster0"  # Matches appName in URI
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb")
+DB_NAME = "Cluster0"
 COLLECTION_NAME = "accounts"
 
 # Initialize MongoDB client
@@ -31,7 +31,7 @@ try:
     accounts_collection = db[COLLECTION_NAME]
     # Test connection
     mongo_client.server_info()
-except ConnectionError as e:
+except ConnectionFailure as e:  # Updated to ConnectionFailure
     print(f"Failed to connect to MongoDB: {e}")
     raise
 
@@ -522,7 +522,7 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
 }"""
     }
     start_time = time.time()
-    timeout = 15 * 60  # 5 minutes in seconds
+    timeout = 5 * 60  # 5 minutes in seconds
     while time.time() - start_time < timeout:
         response = requests.post(status_url, headers=status_headers, json=status_data)
         addon_on = True  # Deployment is active during polling
@@ -584,7 +584,7 @@ async def poll_status(id_token, srv_id, update, context, message_id, random_name
         )
         if status_state == "SUCCESS":
             return
-        await asyncio.sleep(10)
+        await asyncio.sleep(15)
     # Timeout reached
     addon_on = False
     await context.bot.edit_message_text(
