@@ -38,7 +38,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "7986332965:AAHjmg87rRWDffdDNyV_aEhrs8Hrzx1ir
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Optional: for webhook setup
-PORT = int(os.getenv("PORT"))  # Render assigns PORT
+PORT = int(os.getenv("PORT", 8443))  # Render assigns PORT
 
 # MongoDB setup
 try:
@@ -53,13 +53,22 @@ except Exception as e:
 # Fixed FirstCards
 FIRSTCARDS = ["BOOKS", "NOTES", "TESTS"]
 
-# Initialize MongoDB with default FirstCards if empty
+# Initialize MongoDB with default FirstCards if they don't exist
 def init_mongodb():
-    existing_cards = cards_collection.find_one({}, {"_id": 0})
-    if not existing_cards:
-        for fc in FIRSTCARDS:
+    # Create unique index on 'text' field to prevent duplicates
+    try:
+        cards_collection.create_index("text", unique=True)
+        logger.info("Created unique index on 'text' field in cards collection")
+    except Exception as e:
+        logger.warning(f"Failed to create unique index: {str(e)}")
+
+    # Check and insert missing FirstCards
+    existing_cards = {doc["text"] for doc in cards_collection.find({}, {"_id": 0, "text": 1})}
+    for fc in FIRSTCARDS:
+        if fc not in existing_cards:
             cards_collection.insert_one({"text": fc, "secondcards": []})
-        logger.info("Initialized MongoDB with default FirstCards")
+            logger.info(f"Inserted FirstCard: {fc}")
+    logger.info("MongoDB initialization completed")
 
 init_mongodb()
 
@@ -251,7 +260,7 @@ HTML_CONTENT = """
     </div>
 <script>
 const firstcardsData = {cards.json content};
-        function createCard(cardData, isSecondCard = false) {
+       function createCard(cardData, isSecondCard = false) {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
@@ -646,7 +655,7 @@ async def input_subcard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return INPUT_SUBCARD
 
     encoded_url = encode_urls(channel_id, f_msg_id, s_msg_id)
-    subcard = {"text": sub_name, "url": f"https://dusra-aur.github.io/servertokens/?token={encoded_url}"}
+    subcard = {"text": sub_name, "url": f" https://dusra-aur.github.io/servertokens/?token={encoded_url}"}
     try:
         cards_collection.update_one(
             {"text": context.user_data["firstcard_name"], "secondcards.text": context.user_data["secondcard"]["text"]},
