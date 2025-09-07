@@ -21,14 +21,13 @@ from pymongo import MongoClient
 from datetime import datetime
 
 # Setup logging
-LOG_DIR = "/var/log/telegram_bot"
-os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = "/tmp/telegram_bot.log"
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
     handlers=[
-        logging.FileHandler(os.path.join(LOG_DIR, "bot.log")),
-        logging.StreamHandler()
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()  # For Render's dashboard logs
     ]
 )
 logger = logging.getLogger(__name__)
@@ -37,14 +36,19 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7986332965:AAHjmg87rRWDffdDNyV_aEhrs8Hrzx1irh0")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+MONGODB_URI = os.getenv("MONGODB_URI", " mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Optional: for webhook setup
+PORT = int(os.getenv("PORT"))  # Render assigns PORT
 
 # MongoDB setup
-client = MongoClient(MONGODB_URI)
-db = client["telegram_bot"]
-cards_collection = db["cards"]
-changes_collection = db["changes"]
+try:
+    client = MongoClient(MONGODB_URI)
+    db = client["telegram_bot"]
+    cards_collection = db["cards"]
+    changes_collection = db["changes"]
+except Exception as e:
+    logger.error(f"Failed to connect to MongoDB: {str(e)}")
+    raise
 
 # Fixed FirstCards
 FIRSTCARDS = ["BOOKS", "NOTES", "TESTS"]
@@ -323,7 +327,7 @@ initializeCards();
 </html>
 """
 
-# HTML output path for server
+# HTML output path for Render
 HTML_OUTPUT = "/tmp/output.html"
 
 # Conversation states
@@ -351,9 +355,9 @@ def move_secondcard_to_top(firstcard, secondcard):
 
 def encode_urls(channel_id, f_msg_id, s_msg_id):
     channel_id = int(f"-100{channel_id}")
-    channel_id_encoded = channel_id * 43
-    f_msg_id_encoded = int(f_msg_id) * 43
-    s_msg_id_encoded = int(s_msg_id) * 43
+    channel_id_encoded = channel_id * 8
+    f_msg_id_encoded = int(f_msg_id) * 8
+    s_msg_id_encoded = int(s_msg_id) * 8
     raw_string = f"get-{channel_id_encoded}-{f_msg_id_encoded}-{s_msg_id_encoded}"
     encoded = base64.b64encode(raw_string.encode()).decode().rstrip("=")
     return encoded
@@ -371,7 +375,6 @@ def compare_json(old_data, new_data):
     changes = []
     if old_data is None:
         return ["Initial data created."]
-    # Simplified comparison for brevity
     for old_fc, new_fc in zip(old_data, new_data):
         if old_fc["text"] != new_fc["text"]:
             changes.append(f"Changed FirstCard: {old_fc['text']} to {new_fc['text']}")
@@ -383,7 +386,6 @@ def compare_json(old_data, new_data):
 def save_json():
     try:
         data = list(cards_collection.find())
-        # Save change log to MongoDB
         previous_data = changes_collection.find_one({"type": "latest_data"})
         change_log = compare_json(previous_data.get("data") if previous_data else None, data)
         if change_log:
@@ -392,13 +394,11 @@ def save_json():
                 "changes": change_log,
                 "timestamp": datetime.utcnow()
             })
-        # Update latest data
         changes_collection.update_one(
             {"type": "latest_data"},
             {"$set": {"data": data}},
             upsert=True
         )
-        # Generate HTML
         json_data = json.dumps(data, indent=4)
         html_content = HTML_CONTENT.replace("{cards.json content}", json_data)
         with open(HTML_OUTPUT, "w") as f:
@@ -590,9 +590,9 @@ async def prompt_subcard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "TESTS": "Write Class Name:"
     }.get(firstcard_name, "Enter Subcard Name:")
     message_text = (
-        f"{prompt}\nThen provide two URLs in this format:\n\n"
-        "1 https://t.me/c/9247256282/392\n"
-        "2 https://t.me/c/9247256282/396\n"
+        f"{prompt}\nThen provide two URLs in this format:\n"
+        "1 https://t.me/c/<channel_id>/<f_msg_id>\n"
+        "2 https://t.me/c/<channel_id>/<s_msg_id>\n"
         "Ensure the channel_id is the same for both URLs."
     )
     keyboard = [[InlineKeyboardButton("Back to FirstCard", callback_data=f"back_to_fc_{update.callback_query.id if update.callback_query else update.message.message_id}")]]
@@ -1117,7 +1117,7 @@ async def update_web(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         REPO_OWNER = "Kuchbhiarfk"
         REPO_NAME = "trykarkedekho"
-        FILE_PATH = "input.html"  # Update to "docs/output.html" if needed
+        FILE_PATH = "index.html"  # Update to "docs/output.html" if needed
         branch = "main"  # Update to "gh-pages" if needed
 
         with open(HTML_OUTPUT, "r") as f:
@@ -1279,7 +1279,7 @@ def main():
             logger.info(f"Starting webhook on {WEBHOOK_URL}")
             application.run_webhook(
                 listen="0.0.0.0",
-                port=8443,
+                port=PORT,
                 url_path="",
                 webhook_url=WEBHOOK_URL
             )
