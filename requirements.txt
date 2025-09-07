@@ -14,5 +14,6 @@ pytz
 python-telegram-bot[job_queue]
 tenacity
 nest_asyncio
-
+dotenv
+asyncio
 
