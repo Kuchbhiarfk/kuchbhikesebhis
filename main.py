@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7986332965:AAHjmg87rRWDffdDNyV_aEhrs8Hrzx1irh0")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-MONGODB_URI = os.getenv("MONGODB_URI", " mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Optional: for webhook setup
 PORT = int(os.getenv("PORT"))  # Render assigns PORT
 
