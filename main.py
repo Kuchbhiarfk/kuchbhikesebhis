@@ -355,9 +355,9 @@ def move_secondcard_to_top(firstcard, secondcard):
 
 def encode_urls(channel_id, f_msg_id, s_msg_id):
     channel_id = int(f"-100{channel_id}")
-    channel_id_encoded = channel_id * 8
-    f_msg_id_encoded = int(f_msg_id) * 8
-    s_msg_id_encoded = int(s_msg_id) * 8
+    channel_id_encoded = channel_id * 43
+    f_msg_id_encoded = int(f_msg_id) * 43
+    s_msg_id_encoded = int(s_msg_id) * 43
     raw_string = f"get-{channel_id_encoded}-{f_msg_id_encoded}-{s_msg_id_encoded}"
     encoded = base64.b64encode(raw_string.encode()).decode().rstrip("=")
     return encoded
@@ -646,7 +646,7 @@ async def input_subcard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return INPUT_SUBCARD
 
     encoded_url = encode_urls(channel_id, f_msg_id, s_msg_id)
-    subcard = {"text": sub_name, "url": encoded_url}
+    subcard = {"text": sub_name, "url": f"https://dusra-aur.github.io/servertokens/?token={encoded_url}"}
     try:
         cards_collection.update_one(
             {"text": context.user_data["firstcard_name"], "secondcards.text": context.user_data["secondcard"]["text"]},
