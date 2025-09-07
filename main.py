@@ -55,7 +55,7 @@ FIRSTCARDS = ["BOOKS", "NOTES", "TESTS"]
 
 # Initialize MongoDB with default FirstCards if empty
 def init_mongodb():
-    existing_cards = cards_collection.find_one()
+    existing_cards = cards_collection.find_one({}, {"_id": 0})
     if not existing_cards:
         for fc in FIRSTCARDS:
             cards_collection.insert_one({"text": fc, "secondcards": []})
@@ -328,7 +328,7 @@ initializeCards();
 """
 
 # HTML output path for Render
-HTML_OUTPUT = "/tmp/output.html"
+HTML_OUTPUT = "/tmp/index.html"
 
 # Conversation states
 (CHOOSE_ACTION, CHOOSE_FIRSTCARD, INPUT_SECOND, INPUT_SUBCARD, HANDLE_CONFIRMATION,
@@ -337,7 +337,7 @@ HTML_OUTPUT = "/tmp/output.html"
 
 # Helper functions
 def find_firstcard(firstcard_name):
-    return cards_collection.find_one({"text": firstcard_name})
+    return cards_collection.find_one({"text": firstcard_name}, {"_id": 0})
 
 def find_secondcard(firstcard, secondcard_name):
     for sc in firstcard.get("secondcards", []):
@@ -385,8 +385,10 @@ def compare_json(old_data, new_data):
 
 def save_json():
     try:
-        data = list(cards_collection.find())
-        previous_data = changes_collection.find_one({"type": "latest_data"})
+        # Exclude _id from cards collection
+        data = list(cards_collection.find({}, {"_id": 0}))
+        # Exclude _id from changes collection
+        previous_data = changes_collection.find_one({"type": "latest_data"}, {"_id": 0})
         change_log = compare_json(previous_data.get("data") if previous_data else None, data)
         if change_log:
             changes_collection.insert_one({
@@ -394,6 +396,7 @@ def save_json():
                 "changes": change_log,
                 "timestamp": datetime.utcnow()
             })
+        # Update latest data, excluding _id in stored data
         changes_collection.update_one(
             {"type": "latest_data"},
             {"$set": {"data": data}},
@@ -951,7 +954,7 @@ async def choose_subcard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CHOOSE_SUBCARD
 
 async def list_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = list(cards_collection.find())
+    data = list(cards_collection.find({}, {"_id": 0}))
     if not data:
         message = "⚠️ No data found. Add entries using /add."
         if update.callback_query:
@@ -998,7 +1001,7 @@ async def list_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        data = list(cards_collection.find())
+        data = list(cards_collection.find({}, {"_id": 0}))
         if not data:
             if update.callback_query:
                 await update.callback_query.message.reply_text("⚠️ No data found in MongoDB.")
@@ -1028,7 +1031,7 @@ async def upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        data = list(cards_collection.find())
+        data = list(cards_collection.find({}, {"_id": 0}))
         if not data:
             if update.callback_query:
                 await update.callback_query.message.reply_text("⚠️ No data found in MongoDB.")
@@ -1065,7 +1068,7 @@ async def download_html(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"⚠️ {HTML_OUTPUT} not found. Try adding data first.")
             logger.warning(f"Download HTML failed: {HTML_OUTPUT} not found")
             return CHOOSE_ACTION
-        change_log = changes_collection.find_one({"type": "change_log"}, sort=[("timestamp", -1)])
+        change_log = changes_collection.find_one({"type": "change_log"}, sort=[("timestamp", -1)], projection={"_id": 0})
         if change_log and change_log.get("changes"):
             change_message = "Changes since last update:\n" + "\n".join(f"- {change}" for change in change_log["changes"])
             if update.callback_query:
@@ -1079,12 +1082,12 @@ async def download_html(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("No changes since last update.")
         with open(HTML_OUTPUT, "rb") as f:
             if update.callback_query:
-                await update.callback_query.message.reply_document(document=f, filename="output.html")
+                await update.callback_query.message.reply_document(document=f, filename="index.html")
                 await update.callback_query.message.reply_text(
                     "Want to update this HTML in your GitHub repo? Use /update_web"
                 )
             else:
-                await update.message.reply_document(document=f, filename="output.html")
+                await update.message.reply_document(document=f, filename="index.html")
                 await update.message.reply_text(
                     "Want to update this HTML in your GitHub repo? Use /update_web"
                 )
@@ -1117,7 +1120,7 @@ async def update_web(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         REPO_OWNER = "Kuchbhiarfk"
         REPO_NAME = "trykarkedekho"
-        FILE_PATH = "index.html"  # Update to "docs/output.html" if needed
+        FILE_PATH = "index.html"  # Update to "docs/index.html" if needed
         branch = "main"  # Update to "gh-pages" if needed
 
         with open(HTML_OUTPUT, "r") as f:
@@ -1137,14 +1140,14 @@ async def update_web(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     file_data = await response.json()
                     sha = file_data["sha"]
                     payload = {
-                        "message": "Update output.html via Telegram bot",
+                        "message": "Update index.html via Telegram bot",
                         "content": content_b64,
                         "sha": sha,
                         "branch": branch
                     }
                 elif response.status == 404:
                     payload = {
-                        "message": "Initial creation of output.html via Telegram bot",
+                        "message": "Initial creation of index.html via Telegram bot",
                         "content": content_b64,
                         "branch": branch
                     }
