@@ -11,7 +11,7 @@ from urllib3.util.retry import Retry
 from requests.exceptions import RequestException, Timeout, ConnectTimeout, ConnectionError
 
 # Bot token (replace with your bot token from BotFather)
-BOT_TOKEN = "8236348331:AAHhTHOM30Y9ULkeBWuNnUa5cl8u6rL3x2s"
+BOT_TOKEN = "8236348331:AAGx-afa22wvt_q-7VCvk-OjslY2T0gtEvg"
 
 # Base URL and headers
 base_url = "https://studystark.site/api_proxy.php"
