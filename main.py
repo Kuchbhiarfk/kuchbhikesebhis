@@ -14,9 +14,9 @@ from requests.exceptions import RequestException, Timeout, ConnectTimeout, Conne
 BOT_TOKEN = "8236348331:AAHhTHOM30Y9ULkeBWuNnUa5cl8u6rL3x2s"
 
 # Base URL and headers
-base_url = "https://studystark.in/temporary-shifted/api_proxy.php"
-jwt_url = "https://studystark.in/temporary-shifted/jwt_encoder.php"
-play_url = "https://studystark.in/temporary-shifted/play/play.php"
+base_url = "https://studystark.site/api_proxy.php"
+jwt_url = "https://studystark.site/jwt_encoder.php"
+play_url = "https://studystark.site/play/play.php"
 headers = {"X-Requested-With": "SPA-Client"}
 jwt_headers = {"Content-Type": "application/json"}
 TIMEOUT = 600  # Increased timeout for external APIs
