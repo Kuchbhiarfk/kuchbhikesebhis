@@ -20,13 +20,15 @@ play_url = "https://studystark.site/play/play.php"
 headers = {"X-Requested-With": "SPA-Client"}
 jwt_headers = {"Content-Type": "application/json"}
 TIMEOUT = 600  # Increased timeout for external APIs
+# Default token
+API_TOKEN = "Qd2wfhzRoi5eQdoITwpbNKPMdMTNSs37YUjvj0rSb5sGwlFOxcRHjSW3cSaE0hDa36JN2G1VAhxuz%2FMroNDeIbGfw%2BZ9LUoTnjCn49Z4zsId4Ifjg5txqbO48wm2YHIOj4P49Q7fuD46yib3kSZhRmmK5A57iequiNWnng6kejivnnXAN1akLhYguUe0n0ARg6SLuksp2Z0vzB%2FxZiZLh4w901TdbzVGE1m60Mr4pYWw7PGb4EA482039tm0Ii9gsfKBm%2F4AzQCQ3SU6qfGSvi7BTyRByaAMfQaYElmNI2BdhH38G6hNePLy%2Fv%2BusavTzvxYBUVW7w9uOsAEJOHtv91JBsAXR1il4M%2FB6JtMwZgf%2FNGuRhW4fcSD9glTxmaVhLObZb%2FCPPQgS8E8G1AI8GO2nTU%2FF3ut52Bj7Zv%2FO9hA92gfrT4iwYAezfb5Il01PB5fd26PBmjTjADtuWDMIdm9QaxSnvkaJLhD0rvBqJoWR0BBAEFYebyW2x7K5z6Ro6KatjH4BAZXvTjDZSGEc%2BKRuxhIyoPomAaXFOktxPaOqiHYxjVbffnqTCpU3rSVG%2FZqQR%2Fvc3V3GlHJgRs7in9sMEHtpVRBqM3e2TS8xiGd2ks9GPRAy3pWgR3Uzm6P%2F%2FPIAiYDCZlBmsKNA%2BhNDYppXn98anirn%2B6pwyASOm8%3D"
 
 def create_session():
     """Create a session with enhanced retry logic."""
     session = requests.Session()
     retries = Retry(
-        total=10,  # More retries
-        backoff_factor=2,  # Exponential backoff: 2s, 4s, 8s, etc.
+        total=10,
+        backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"]
     )
@@ -46,7 +48,7 @@ def safe_request(session, method, url, headers=None, data=None, timeout=TIMEOUT,
         except (Timeout, ConnectTimeout, ConnectionError, RequestException) as e:
             print(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) + (0.1 * attempt)  # Exponential backoff with jitter
+                wait_time = (2 ** attempt) + (0.1 * attempt)
                 print(f"Retrying in {wait_time:.1f} seconds...")
                 time.sleep(wait_time)
             else:
@@ -85,9 +87,10 @@ def fetch_batches_by_name(batch_name, session):
         print("Error parsing JSON for batches")
         return []
 
-def fetch_content(subject_id, topic_id, topic_name, content_type, batch_id, session, base64_string, retry=False):
+def fetch_content(subject_id, topic_id, topic_name, content_type, batch_id, session, base64_string, context, retry=False):
     """Fetch content (videos, notes, DPP notes) for a topic with retries."""
-    content_url = f"{base_url}?action=content&batch_id={batch_id}&subject_id={subject_id}&topic_id={topic_id}&content_type={content_type}"
+    token = context.user_data.get("api_token", API_TOKEN)  # Use custom token if available, else default
+    content_url = f"{base_url}?action=content&batch_id={batch_id}&subject_id={subject_id}&topic_id={topic_id}&content_type={content_type}&token={token}"
     page = 1
     seen_content = set()
     results = []
@@ -105,7 +108,8 @@ def fetch_content(subject_id, topic_id, topic_name, content_type, batch_id, sess
 
         if not content_data.get("success") or not content_data.get("data"):
             if not retry and page == 1:
-                return fetch_content(subject_id, topic_id, topic_name, content_type, batch_id, session, base64_string, retry=True)
+                return fetch_content(subject_id, topic_id, topic_name, content_type, batch_id, session, base64_string, context, retry=True)
+            print(f"    ❌ No content found for {content_type} in topic {topic_name}, page {page}")
             break
 
         for content_item in content_data["data"]:
@@ -186,6 +190,20 @@ async def safe_reply_document(update: Update, document, filename: str, context: 
                 await asyncio.sleep(2 ** attempt)
     return False
 
+async def add_token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /add_token {API_TOKEN} command to set or clear a custom API token."""
+    args = context.args
+    if not args:
+        # Clear custom token and revert to default
+        context.user_data.pop("api_token", None)
+        await safe_send_message(update, "Custom API token cleared. Using default token.", context)
+        return
+
+    # Set custom token
+    custom_token = " ".join(args)
+    context.user_data["api_token"] = custom_token
+    await safe_send_message(update, f"Custom API token set successfully.", context)
+
 async def batch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /batch {batch_id} command with non-stopping retries."""
     args = context.args
@@ -243,10 +261,11 @@ async def batch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await safe_edit_message(progress_message, f"Batchname: {batch_name}\nSubject: {subject_name}\nTopic name: -\nSubjects fetched: {subjects_fetched}\nTopics fetched: {topics_fetched}")
                         last_update = time.time()
                     except Exception:
-                        pass  # Continue even if edit fails
+                        pass
 
                 # Fetch topics with retry
-                topics_url = f"{base_url}?action=topics&batch_id={batch_id}&subject_id={subject_id}"
+                token = context.user_data.get("api_token", API_TOKEN)  # Use custom token if available, else default
+                topics_url = f"{base_url}?action=topics&batch_id={batch_id}&subject_id={subject_id}&token={token}"
                 page = 1
                 unique_topics = set()
 
@@ -274,6 +293,7 @@ async def batch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 await safe_send_message(update, f"❌ Retry failed for topics in {subject_name} from {topics_url}", context)
                                 break
                         if not topic_data.get("success") or not topic_data.get("data"):
+                            print(f"    ❌ No topics found for {subject_name}, page {page}")
                             break
 
                     for item in topic_data["data"]:
@@ -292,12 +312,12 @@ async def batch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     await safe_edit_message(progress_message, f"Batchname: {batch_name}\nSubject: {subject_name}\nTopic name: {topic_name}\nSubjects fetched: {subjects_fetched}\nTopics fetched: {topics_fetched}")
                                     last_update = time.time()
                                 except Exception:
-                                    pass  # Continue even if edit fails
+                                    pass
 
                             # Fetch content with retry
                             content_types = [{"type": "videos"}, {"type": "notes"}, {"type": "DppNotes"}]
                             for content in content_types:
-                                results = fetch_content(subject_id, topic_id, topic_name, content["type"], batch_id, session, base64_string)
+                                results = fetch_content(subject_id, topic_id, topic_name, content["type"], batch_id, session, base64_string, context)
                                 for result in results:
                                     cf.write(f"{result}\n")
 
@@ -360,7 +380,7 @@ async def name_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messages = []
     for i, batch in enumerate(batches):
         line = f"{i}: {batch['name']} : {batch['batch_id']} : {batch['exam']} : {batch['photo']}\n"
-        if len(message) + len(line) > 4000:  # Telegram message limit ~4096
+        if len(message) + len(line) > 4000:
             messages.append(message)
             message = "Available batches (continued):\n"
         message += line
@@ -433,10 +453,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 await safe_edit_message(progress_message, f"Batchname: {batch_name}\nSubject: {subject_name}\nTopic name: -\nSubjects fetched: {subjects_fetched}\nTopics fetched: {topics_fetched}")
                                 last_update = time.time()
                             except Exception:
-                                pass  # Continue
+                                pass
 
-                        # Fetch topics with retry (similar to batch_command)
-                        topics_url = f"{base_url}?action=topics&batch_id={batch_id}&subject_id={subject_id}"
+                        # Fetch topics with retry
+                        token = context.user_data.get("api_token", API_TOKEN)  # Use custom token if available, else default
+                        topics_url = f"{base_url}?action=topics&batch_id={batch_id}&subject_id={subject_id}&token={token}"
                         page = 1
                         unique_topics = set()
 
@@ -463,6 +484,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         await safe_send_message(update, f"❌ Retry failed for topics in {subject_name} from {topics_url}", context)
                                         break
                                 if not topic_data.get("success") or not topic_data.get("data"):
+                                    print(f"    ❌ No topics found for {subject_name}, page {page}")
                                     break
 
                             for item in topic_data["data"]:
@@ -480,12 +502,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                             await safe_edit_message(progress_message, f"Batchname: {batch_name}\nSubject: {subject_name}\nTopic name: {topic_name}\nSubjects fetched: {subjects_fetched}\nTopics fetched: {topics_fetched}")
                                             last_update = time.time()
                                         except Exception:
-                                            pass  # Continue
+                                            pass
 
                                     # Fetch content
                                     content_types = [{"type": "videos"}, {"type": "notes"}, {"type": "DppNotes"}]
                                     for content in content_types:
-                                        results = fetch_content(subject_id, topic_id, topic_name, content["type"], batch_id, session, base64_string)
+                                        results = fetch_content(subject_id, topic_id, topic_name, content["type"], batch_id, session, base64_string, context)
                                         for result in results:
                                             cf.write(f"{result}\n")
 
@@ -538,7 +560,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         exc = context.error
         print(f"Unhandled error: {exc}")
-        # Avoid sending if it's a network error to prevent recursion
         if not isinstance(exc, (Timeout, ConnectTimeout, ConnectionError)):
             await safe_send_message(update, f"An error occurred: {str(exc)}", context)
     except Exception as e:
@@ -547,13 +568,12 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def main():
     """Run the Telegram bot with enhanced timeouts and shutdown handling."""
     try:
-        # Create the Application with higher timeouts for stability
         application = (
             Application.builder()
             .token(BOT_TOKEN)
             .connect_timeout(60.0)
             .read_timeout(50.0)
-            .write_timeout(60.0)  # Higher for file uploads
+            .write_timeout(60.0)
             .pool_timeout(15.0)
             .get_updates_connect_timeout(30.0)
             .get_updates_read_timeout(50.0)
@@ -565,19 +585,18 @@ async def main():
         # Add handlers
         application.add_handler(CommandHandler("batch", batch_command))
         application.add_handler(CommandHandler("name", name_command))
+        application.add_handler(CommandHandler("add_token", add_token_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
         application.add_error_handler(error_handler)
 
-        # Start polling
         print("Bot is running...")
         await application.initialize()
         await application.start()
         await application.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
-        # Keep the bot running until interrupted
         try:
             while True:
-                await asyncio.sleep(3600)  # Sleep for an hour to keep the loop alive
+                await asyncio.sleep(3600)
         except asyncio.CancelledError:
             print("Shutting down bot...")
             await application.updater.stop()
@@ -589,7 +608,6 @@ async def main():
         raise
 
 if __name__ == "__main__":
-    # Check if an event loop is already running
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -597,17 +615,14 @@ if __name__ == "__main__":
         asyncio.set_event_loop(loop)
 
     try:
-        # Run the main coroutine
         loop.run_until_complete(main())
     except KeyboardInterrupt:
         print("Received interrupt, shutting down...")
-        # Cancel all tasks
         tasks = [task for task in asyncio.all_tasks(loop) if task is not asyncio.current_task(loop)]
         for task in tasks:
             task.cancel()
-        # Run shutdown
         loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.run_until_complete(asyncio.sleep(0))  # Allow pending tasks to complete
+        loop.run_until_complete(asyncio.sleep(0))
     finally:
         if not loop.is_closed():
             loop.close()
