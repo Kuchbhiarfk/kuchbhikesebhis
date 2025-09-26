@@ -17,4 +17,4 @@ nest_asyncio
 dotenv
 asyncio
 aiofiles
-
+ijson
