@@ -16,4 +16,5 @@ tenacity
 nest_asyncio
 dotenv
 asyncio
+aiofiles
 
