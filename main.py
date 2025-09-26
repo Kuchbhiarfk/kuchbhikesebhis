@@ -25,7 +25,7 @@ async def save_to_json(filename, data):
     async with aiofiles.open(filename, 'w', encoding='utf-8') as f:
         await f.write(json.dumps(data, indent=2, ensure_ascii=False))
 
-def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json", known_educator_uids=None):
+def fetch_educators(goal_uid="TMUVD", limit=100, max_offset=1000, json_data=None, filename="funkabhosda.json", known_educator_uids=None):
     """Fetch educators and save to JSON."""
     base_url = "https://unacademy.com/api/v1/uplus/subscription/goal_educators/"
     seen_usernames = set()
@@ -76,7 +76,7 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None,
 
     return educators
 
-def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json"):
+def fetch_courses(username, limit=100, max_offset=1000, json_data=None, filename="funkabhosda.json"):
     """Fetch courses for a given username and save to JSON."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/course?username={username}&limit={limit}&type=latest"
     seen_uids = set()
@@ -133,7 +133,7 @@ def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename=
             time.sleep(5)
             continue
 
-def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json"):
+def fetch_batches(username, known_educator_uids, limit=100, max_offset=1000, json_data=None, filename="funkabhosda.json"):
     """Fetch batches for a given username, save to JSON, and return new educators."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/batch?username={username}&limit={limit}"
     seen_batch_uids = set()
@@ -298,7 +298,7 @@ async def progress_updater():
             print(f"Error in progress updater: {e}")
             await asyncio.sleep(5)
         
-        await asyncio.sleep(30)
+        await asyncio.sleep(300)
 
 def fetch_data_in_background():
     """Run the fetching process in a background thread."""
