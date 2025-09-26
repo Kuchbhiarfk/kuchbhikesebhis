@@ -2,11 +2,14 @@ import requests
 import json
 import os
 import time
+import gc  # Garbage collection
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from threading import Thread, Lock
 import asyncio
 import aiofiles
+import ijson  # For streaming JSON
+import psutil  # For memory monitoring
 
 # Global variables
 fetching = False
@@ -24,9 +27,45 @@ async def save_to_json(filename, data):
     """Save data to a JSON file with locking."""
     async with aiofiles.open(filename, 'w', encoding='utf-8') as f:
         await f.write(json.dumps(data, indent=2, ensure_ascii=False))
+    gc.collect()  # Force GC after save
 
-def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json", known_educator_uids=None):
-    """Fetch educators and save to JSON."""
+def stream_count_items(filename):
+    """Stream counts from JSON without loading full file."""
+    educator_count = 0
+    course_count = 0
+    batch_count = 0
+    try:
+        with open(filename, 'rb') as f:
+            # Stream educators
+            parser = ijson.parse(f)
+            for prefix, event, value in parser:
+                if prefix == 'educators' and event == 'end_array':
+                    educator_count = value if isinstance(value, int) else len(value)  # Fallback
+                # For courses and batches (dicts), sum lengths iteratively
+                if prefix.startswith('courses') and event == 'end_map_key':
+                    sub_count = 0
+                    for _, e, v in ijson.items(f, prefix + '.item'):
+                        if isinstance(v, list):
+                            sub_count += len(v)
+                    course_count += sub_count
+                if prefix.startswith('batches') and event == 'end_map_key':
+                    sub_count = 0
+                    for _, e, v in ijson.items(f, prefix + '.item'):
+                        if isinstance(v, list):
+                            sub_count += len(v)
+                    batch_count += sub_count
+    except Exception as e:
+        print(f"Streaming count error: {e}")
+        # Fallback to full load if streaming fails
+        with open(filename, 'r') as f:
+            data = json.load(f)
+            educator_count = len(data.get("educators", []))
+            course_count = sum(len(courses) for courses in data.get("courses", {}).values())
+            batch_count = sum(len(batches) for batches in data.get("batches", {}).values())
+    return educator_count, course_count, batch_count
+
+def fetch_educators(goal_uid="TMUVD", limit=20, max_offset=1000, json_data=None, filename="funkabhosda.json", known_educator_uids=None):
+    """Fetch educators with streaming requests and low memory."""
     base_url = "https://unacademy.com/api/v1/uplus/subscription/goal_educators/"
     seen_usernames = set()
     educators = []
@@ -36,9 +75,10 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None,
     while offset <= max_offset:
         url = f"{base_url}?goal_uid={goal_uid}&limit={limit}&offset={offset}"
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, stream=True)  # Stream response
             response.raise_for_status()
-            data = response.json()
+            data = response.json()  # For small responses, ok; else use iter_lines
+            time.sleep(1)
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print("Error E001 encountered. Stopping educator fetch.")
@@ -67,6 +107,8 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None,
 
             with json_lock:
                 asyncio.run_coroutine_threadsafe(save_to_json(filename, json_data), loop).result()
+            del data, results  # Explicit delete
+            gc.collect()
             offset += limit
 
         except requests.RequestException as e:
@@ -76,8 +118,8 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None,
 
     return educators
 
-def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json"):
-    """Fetch courses for a given username and save to JSON."""
+def fetch_courses(username, limit=20, max_offset=1000, json_data=None, filename="funkabhosda.json"):
+    """Fetch courses with low memory."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/course?username={username}&limit={limit}&type=latest"
     seen_uids = set()
     json_data["courses"] = json_data.get("courses", {})
@@ -87,9 +129,10 @@ def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename=
     while offset <= max_offset:
         url = f"{base_url}&offset={offset}"
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, stream=True)
             response.raise_for_status()
             data = response.json()
+            time.sleep(1)
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for courses of {username}. Stopping course fetch.")
@@ -126,6 +169,8 @@ def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename=
 
             with json_lock:
                 asyncio.run_coroutine_threadsafe(save_to_json(filename, json_data), loop).result()
+            del data, results
+            gc.collect()
             offset += limit
 
         except requests.RequestException as e:
@@ -133,8 +178,8 @@ def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename=
             time.sleep(5)
             continue
 
-def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json"):
-    """Fetch batches for a given username, save to JSON, and return new educators."""
+def fetch_batches(username, known_educator_uids, limit=20, max_offset=1000, json_data=None, filename="funkabhosda.json"):
+    """Fetch batches with low memory."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/batch?username={username}&limit={limit}"
     seen_batch_uids = set()
     new_educators = []
@@ -145,9 +190,10 @@ def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json
     while offset <= max_offset:
         url = f"{base_url}&offset={offset}"
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, stream=True)
             response.raise_for_status()
             data = response.json()
+            time.sleep(1)
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for batches of {username}. Stopping batch fetch.")
@@ -208,6 +254,8 @@ def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json
 
             with json_lock:
                 asyncio.run_coroutine_threadsafe(save_to_json(filename, json_data), loop).result()
+            del data, results
+            gc.collect()
             offset += limit
 
         except requests.RequestException as e:
@@ -217,23 +265,18 @@ def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json
 
     return new_educators
 
-def count_items(json_data):
-    """Count educators, courses, and batches in json_data."""
-    educator_count = len(json_data.get("educators", []))
-    course_count = sum(len(courses) for courses in json_data.get("courses", {}).values())
-    batch_count = sum(len(batches) for batches in json_data.get("batches", {}).values())
-    return educator_count, course_count, batch_count
-
 async def send_progress_bar():
     """Send or update the progress bar message."""
     global progress_message, update_obj, update_context
-    educator_count, course_count, batch_count = count_items(last_json_data)
+    # Use streaming counts
+    educator_count, course_count, batch_count = stream_count_items("funkabhosda.json")
     
     progress_text = (
         "📊 *Progress Bar*\n"
         f"Total Educators Fetched: {educator_count}\n"
         f"Total Courses Fetched: {course_count}\n"
-        f"Total Batches Fetched: {batch_count}"
+        f"Total Batches Fetched: {batch_count}\n"
+        f"Current Memory: {psutil.virtual_memory().percent:.1f}%"
     )
     
     try:
@@ -249,16 +292,13 @@ async def upload_json():
     """Upload the funkabhosda.json file to Telegram."""
     global update_obj, update_context
     try:
-        # Check if file exists
         if not os.path.exists("funkabhosda.json"):
             await update_obj.message.reply_text("Error: funkabhosda.json file not found.")
             return
         
-        # Read file content as bytes
         async with aiofiles.open("funkabhosda.json", "rb") as f:
-            file_content = await f.read()  # Properly await the read operation
+            file_content = await f.read()
         
-        # Send file as document
         await update_context.bot.send_document(
             chat_id=update_obj.effective_chat.id,
             document=file_content,
@@ -272,20 +312,15 @@ async def upload_json():
 
 async def progress_updater():
     """Update progress bar every 30 seconds and upload JSON every 2 minutes."""
-    global last_json_data, last_educator_count, last_course_count, last_batch_count
     last_upload_time = time.time()
     
     while fetching:
         try:
-            async with aiofiles.open("funkabhosda.json", "r", encoding="utf-8") as f:
-                current_json_data = json.loads(await f.read())
-            
-            educator_count, course_count, batch_count = count_items(current_json_data)
+            educator_count, course_count, batch_count = stream_count_items("funkabhosda.json")
             
             if (educator_count != last_educator_count or
                 course_count != last_course_count or
                 batch_count != last_batch_count):
-                last_json_data = current_json_data
                 last_educator_count, last_course_count, last_batch_count = educator_count, course_count, batch_count
                 await send_progress_bar()
             
@@ -301,8 +336,8 @@ async def progress_updater():
         await asyncio.sleep(30)
 
 def fetch_data_in_background():
-    """Run the fetching process in a background thread."""
-    global fetching, last_json_data, last_educator_count, last_course_count, last_batch_count, progress_message
+    """Run the fetching process in a background thread with chunking."""
+    global fetching, progress_message
     
     json_data = {
         "educators": [],
@@ -311,6 +346,7 @@ def fetch_data_in_background():
     }
     known_educator_uids = set()
     filename = "funkabhosda.json"
+    chunk_size = 10  # Process 10 educators at a time
 
     while fetching:
         print("Fetching initial educators...")
@@ -320,9 +356,10 @@ def fetch_data_in_background():
         processed_educators = set()
 
         while educator_queue and fetching:
-            current_educators = educator_queue
-            educator_queue = []
-            print(f"\nProcessing {len(current_educators)} educators...")
+            # Chunk the queue
+            current_educators = educator_queue[:chunk_size]
+            educator_queue = educator_queue[chunk_size:]
+            print(f"\nProcessing chunk of {len(current_educators)} educators...")
 
             for username, uid in current_educators:
                 if not fetching:
@@ -333,9 +370,11 @@ def fetch_data_in_background():
 
                 print(f"\nFetching courses for {username}...")
                 fetch_courses(username, json_data=json_data, filename=filename)
+                time.sleep(1)
 
                 print(f"\nFetching batches for {username}...")
                 new_educators = fetch_batches(username, known_educator_uids, json_data=json_data, filename=filename)
+                time.sleep(1)
 
                 if new_educators:
                     print(f"\nNew educators found in batches for {username}:")
@@ -344,6 +383,10 @@ def fetch_data_in_background():
                         educator_queue.append((educator["username"], educator["uid"]))
                 else:
                     print(f"\nNo new educators found in batches for {username}.")
+
+            # GC after chunk
+            del current_educators
+            gc.collect()
 
         if fetching:
             print("\nCompleted one full cycle. Restarting fetch for new data...")
@@ -372,15 +415,12 @@ async def now_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
     await update.message.reply_text("Starting data fetch... ☠️")
     
-    # Initialize JSON file
     with json_lock:
         with open("funkabhosda.json", "w", encoding="utf-8") as f:
             json.dump({"educators": [], "courses": {}, "batches": {}}, f)
     
-    # Start progress updater
     asyncio.create_task(progress_updater())
     
-    # Run fetching in background thread
     thread = Thread(target=fetch_data_in_background)
     thread.start()
 
@@ -397,7 +437,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     """Start the Telegram bot."""
-    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAHViY5ZS6mQRGzarY6QpnSyPChRP2Hbi4o")  # Use environment variable
+    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAHViY5ZS6mQRGzarY6QpnSyPChRP2Hbi4o")
     application = Application.builder().token(bot_token).build()
     
     application.add_handler(CommandHandler("now", now_command))
