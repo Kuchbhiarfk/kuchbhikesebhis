@@ -249,16 +249,13 @@ async def upload_json():
     """Upload the funkabhosda.json file to Telegram."""
     global update_obj, update_context
     try:
-        # Check if file exists
         if not os.path.exists("funkabhosda.json"):
             await update_obj.message.reply_text("Error: funkabhosda.json file not found.")
             return
         
-        # Read file content as bytes
         async with aiofiles.open("funkabhosda.json", "rb") as f:
-            file_content = await f.read()  # Properly await the read operation
+            file_content = await f.read()
         
-        # Send file as document
         await update_context.bot.send_document(
             chat_id=update_obj.effective_chat.id,
             document=file_content,
@@ -288,9 +285,12 @@ async def progress_updater():
                 last_json_data = current_json_data
                 last_educator_count, last_course_count, last_batch_count = educator_count, course_count, batch_count
                 await send_progress_bar()
-            
+                # Notify fetching thread to sleep
+                print("Progress bar updated. Fetching will sleep for 60 seconds.")
+                # Note: The actual sleep happens in fetch_data_in_background
+                
             current_time = time.time()
-            if current_time - last_upload_time >= 1800:
+            if current_time - last_upload_time >= 1200:
                 await upload_json()
                 last_upload_time = current_time
                 
@@ -340,10 +340,18 @@ def fetch_data_in_background():
                 if new_educators:
                     print(f"\nNew educators found in batches for {username}:")
                     for educator in new_educators:
-                        print(f"{educator['first_name']} {educator['last_name']} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
+                        print(f"{educator['first_name']} {educator.get('last_name', 'N/A')} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
                         educator_queue.append((educator["username"], educator["uid"]))
                 else:
                     print(f"\nNo new educators found in batches for {username}.")
+                
+                # Check if progress bar was updated (counts changed)
+                current_counts = count_items(json_data)
+                if (current_counts[0] != last_educator_count or
+                    current_counts[1] != last_course_count or
+                    current_counts[2] != last_batch_count):
+                    print("Counts changed. Sleeping for 60 seconds to reduce API load...")
+                    time.sleep(60)  # Sleep for 1 minute after progress update
 
         if fetching:
             print("\nCompleted one full cycle. Restarting fetch for new data...")
@@ -397,7 +405,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     """Start the Telegram bot."""
-    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAGx2T32AprYtmV0Q2nHoa9XzU-unouapZc")  # Use environment variable
+    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAF_k2rQx-SQNcdoWWDN8YjhcpI8rESPcrg")
     application = Application.builder().token(bot_token).build()
     
     application.add_handler(CommandHandler("now", now_command))
