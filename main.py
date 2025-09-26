@@ -39,7 +39,6 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None,
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
-            time.sleep(1)  # Add 1-second delay after API call
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print("Error E001 encountered. Stopping educator fetch.")
@@ -72,7 +71,7 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None,
 
         except requests.RequestException as e:
             print(f"Request failed for educators: {e}")
-            time.sleep(5)  # Wait longer on error
+            time.sleep(5)
             continue
 
     return educators
@@ -91,7 +90,6 @@ def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename=
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
-            time.sleep(1)  # Add 1-second delay after API call
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for courses of {username}. Stopping course fetch.")
@@ -150,7 +148,6 @@ def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
-            time.sleep(1)  # Add 1-second delay after API call
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for batches of {username}. Stopping batch fetch.")
@@ -252,13 +249,16 @@ async def upload_json():
     """Upload the funkabhosda.json file to Telegram."""
     global update_obj, update_context
     try:
+        # Check if file exists
         if not os.path.exists("funkabhosda.json"):
             await update_obj.message.reply_text("Error: funkabhosda.json file not found.")
             return
         
+        # Read file content as bytes
         async with aiofiles.open("funkabhosda.json", "rb") as f:
-            file_content = await f.read()
+            file_content = await f.read()  # Properly await the read operation
         
+        # Send file as document
         await update_context.bot.send_document(
             chat_id=update_obj.effective_chat.id,
             document=file_content,
@@ -290,7 +290,7 @@ async def progress_updater():
                 await send_progress_bar()
             
             current_time = time.time()
-            if current_time - last_upload_time >= 1200:
+            if current_time - last_upload_time >= 120:
                 await upload_json()
                 last_upload_time = current_time
                 
@@ -333,11 +333,9 @@ def fetch_data_in_background():
 
                 print(f"\nFetching courses for {username}...")
                 fetch_courses(username, json_data=json_data, filename=filename)
-                time.sleep(1)  # Add 1-second delay after fetching courses
 
                 print(f"\nFetching batches for {username}...")
                 new_educators = fetch_batches(username, known_educator_uids, json_data=json_data, filename=filename)
-                time.sleep(1)  # Add 1-second delay after fetching batches
 
                 if new_educators:
                     print(f"\nNew educators found in batches for {username}:")
@@ -349,7 +347,7 @@ def fetch_data_in_background():
 
         if fetching:
             print("\nCompleted one full cycle. Restarting fetch for new data...")
-            time.sleep(60)  # Wait before restarting cycle
+            time.sleep(60)
         else:
             break
 
@@ -374,12 +372,15 @@ async def now_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
     await update.message.reply_text("Starting data fetch... ☠️")
     
+    # Initialize JSON file
     with json_lock:
         with open("funkabhosda.json", "w", encoding="utf-8") as f:
             json.dump({"educators": [], "courses": {}, "batches": {}}, f)
     
+    # Start progress updater
     asyncio.create_task(progress_updater())
     
+    # Run fetching in background thread
     thread = Thread(target=fetch_data_in_background)
     thread.start()
 
@@ -396,7 +397,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     """Start the Telegram bot."""
-    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAFw-n_PWolQej8FhBiYGJ1EIAwnvTh95MM")
+    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAHViY5ZS6mQRGzarY6QpnSyPChRP2Hbi4o")  # Use environment variable
     application = Application.builder().token(bot_token).build()
     
     application.add_handler(CommandHandler("now", now_command))
