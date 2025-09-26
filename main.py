@@ -25,7 +25,7 @@ async def save_to_json(filename, data):
     async with aiofiles.open(filename, 'w', encoding='utf-8') as f:
         await f.write(json.dumps(data, indent=2, ensure_ascii=False))
 
-def fetch_educators(goal_uid="TMUVD", limit=100, max_offset=1000, json_data=None, filename="funkabhosda.json", known_educator_uids=None):
+def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json", known_educator_uids=None):
     """Fetch educators and save to JSON."""
     base_url = "https://unacademy.com/api/v1/uplus/subscription/goal_educators/"
     seen_usernames = set()
@@ -39,6 +39,7 @@ def fetch_educators(goal_uid="TMUVD", limit=100, max_offset=1000, json_data=None
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
+            time.sleep(1)  # Add 1-second delay after API call
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print("Error E001 encountered. Stopping educator fetch.")
@@ -71,12 +72,12 @@ def fetch_educators(goal_uid="TMUVD", limit=100, max_offset=1000, json_data=None
 
         except requests.RequestException as e:
             print(f"Request failed for educators: {e}")
-            time.sleep(5)
+            time.sleep(5)  # Wait longer on error
             continue
 
     return educators
 
-def fetch_courses(username, limit=100, max_offset=1000, json_data=None, filename="funkabhosda.json"):
+def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json"):
     """Fetch courses for a given username and save to JSON."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/course?username={username}&limit={limit}&type=latest"
     seen_uids = set()
@@ -90,6 +91,7 @@ def fetch_courses(username, limit=100, max_offset=1000, json_data=None, filename
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
+            time.sleep(1)  # Add 1-second delay after API call
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for courses of {username}. Stopping course fetch.")
@@ -133,7 +135,7 @@ def fetch_courses(username, limit=100, max_offset=1000, json_data=None, filename
             time.sleep(5)
             continue
 
-def fetch_batches(username, known_educator_uids, limit=100, max_offset=1000, json_data=None, filename="funkabhosda.json"):
+def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json"):
     """Fetch batches for a given username, save to JSON, and return new educators."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/batch?username={username}&limit={limit}"
     seen_batch_uids = set()
@@ -148,6 +150,7 @@ def fetch_batches(username, known_educator_uids, limit=100, max_offset=1000, jso
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
+            time.sleep(1)  # Add 1-second delay after API call
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for batches of {username}. Stopping batch fetch.")
@@ -285,10 +288,7 @@ async def progress_updater():
                 last_json_data = current_json_data
                 last_educator_count, last_course_count, last_batch_count = educator_count, course_count, batch_count
                 await send_progress_bar()
-                # Notify fetching thread to sleep
-                print("Progress bar updated. Fetching will sleep for 60 seconds.")
-                # Note: The actual sleep happens in fetch_data_in_background
-                
+            
             current_time = time.time()
             if current_time - last_upload_time >= 1200:
                 await upload_json()
@@ -298,7 +298,7 @@ async def progress_updater():
             print(f"Error in progress updater: {e}")
             await asyncio.sleep(5)
         
-        await asyncio.sleep(300)
+        await asyncio.sleep(30)
 
 def fetch_data_in_background():
     """Run the fetching process in a background thread."""
@@ -333,29 +333,23 @@ def fetch_data_in_background():
 
                 print(f"\nFetching courses for {username}...")
                 fetch_courses(username, json_data=json_data, filename=filename)
+                time.sleep(1)  # Add 1-second delay after fetching courses
 
                 print(f"\nFetching batches for {username}...")
                 new_educators = fetch_batches(username, known_educator_uids, json_data=json_data, filename=filename)
+                time.sleep(1)  # Add 1-second delay after fetching batches
 
                 if new_educators:
                     print(f"\nNew educators found in batches for {username}:")
                     for educator in new_educators:
-                        print(f"{educator['first_name']} {educator.get('last_name', 'N/A')} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
+                        print(f"{educator['first_name']} {educator['last_name']} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
                         educator_queue.append((educator["username"], educator["uid"]))
                 else:
                     print(f"\nNo new educators found in batches for {username}.")
-                
-                # Check if progress bar was updated (counts changed)
-                current_counts = count_items(json_data)
-                if (current_counts[0] != last_educator_count or
-                    current_counts[1] != last_course_count or
-                    current_counts[2] != last_batch_count):
-                    print("Counts changed. Sleeping for 60 seconds to reduce API load...")
-                    time.sleep(60)  # Sleep for 1 minute after progress update
 
         if fetching:
             print("\nCompleted one full cycle. Restarting fetch for new data...")
-            time.sleep(60)
+            time.sleep(60)  # Wait before restarting cycle
         else:
             break
 
@@ -380,15 +374,12 @@ async def now_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
     await update.message.reply_text("Starting data fetch... ☠️")
     
-    # Initialize JSON file
     with json_lock:
         with open("funkabhosda.json", "w", encoding="utf-8") as f:
             json.dump({"educators": [], "courses": {}, "batches": {}}, f)
     
-    # Start progress updater
     asyncio.create_task(progress_updater())
     
-    # Run fetching in background thread
     thread = Thread(target=fetch_data_in_background)
     thread.start()
 
@@ -405,7 +396,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     """Start the Telegram bot."""
-    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAF_k2rQx-SQNcdoWWDN8YjhcpI8rESPcrg")
+    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAFw-n_PWolQej8FhBiYGJ1EIAwnvTh95MM")
     application = Application.builder().token(bot_token).build()
     
     application.add_handler(CommandHandler("now", now_command))
