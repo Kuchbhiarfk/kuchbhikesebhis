@@ -291,14 +291,14 @@ async def progress_updater():
             
             # Upload JSON every 2 minutes
             current_time = time.time()
-            if current_time - last_upload_time >= 120:
+            if current_time - last_upload_time >= 600:
                 await upload_json()
                 last_upload_time = current_time
                 
         except Exception as e:
             print(f"Error in progress updater: {e}")
         
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
 
 def fetch_data_in_background():
     """Run the fetching process in a background thread."""
