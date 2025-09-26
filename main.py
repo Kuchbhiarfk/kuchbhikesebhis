@@ -18,7 +18,7 @@ progress_message = None
 update_context = None
 update_obj = None
 loop = None
-json_lock = Lock()  # Lock for JSON file access
+json_lock = Lock()
 
 async def save_to_json(filename, data):
     """Save data to a JSON file with locking."""
@@ -71,7 +71,7 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, json_data=None,
 
         except requests.RequestException as e:
             print(f"Request failed for educators: {e}")
-            time.sleep(5)  # Wait before retrying
+            time.sleep(5)
             continue
 
     return educators
@@ -243,21 +243,32 @@ async def send_progress_bar():
             await progress_message.edit_text(progress_text, parse_mode="Markdown")
     except Exception as e:
         print(f"Error updating progress bar: {e}")
-        # Send a new message if edit fails
         progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown")
 
 async def upload_json():
     """Upload the funkabhosda.json file to Telegram."""
     global update_obj, update_context
     try:
+        # Check if file exists
+        if not os.path.exists("funkabhosda.json"):
+            await update_obj.message.reply_text("Error: funkabhosda.json file not found.")
+            return
+        
+        # Read file content as bytes
         async with aiofiles.open("funkabhosda.json", "rb") as f:
-            await update_context.bot.send_document(
-                chat_id=update_obj.effective_chat.id,
-                document=f,
-                caption="Updated funkabhosda.json"
-            )
+            file_content = await f.read()  # Properly await the read operation
+        
+        # Send file as document
+        await update_context.bot.send_document(
+            chat_id=update_obj.effective_chat.id,
+            document=file_content,
+            filename="funkabhosda.json",
+            caption="Updated funkabhosda.json"
+        )
     except Exception as e:
-        await update_obj.message.reply_text(f"Error uploading JSON: {e}")
+        error_msg = f"Error uploading JSON: {str(e)}"
+        print(error_msg)
+        await update_obj.message.reply_text(error_msg)
 
 async def progress_updater():
     """Update progress bar every 30 seconds and upload JSON every 2 minutes."""
@@ -279,15 +290,15 @@ async def progress_updater():
                 await send_progress_bar()
             
             current_time = time.time()
-            if current_time - last_upload_time >= 120:  # Reduced to 2 minutes for testing
+            if current_time - last_upload_time >= 1800:
                 await upload_json()
                 last_upload_time = current_time
                 
         except Exception as e:
             print(f"Error in progress updater: {e}")
-            await asyncio.sleep(5)  # Short sleep on error to avoid rapid retries
+            await asyncio.sleep(5)
         
-        await asyncio.sleep(30)  # Check every 30 seconds for more frequent updates
+        await asyncio.sleep(30)
 
 def fetch_data_in_background():
     """Run the fetching process in a background thread."""
@@ -302,11 +313,9 @@ def fetch_data_in_background():
     filename = "funkabhosda.json"
 
     while fetching:
-        # Fetch initial educators
         print("Fetching initial educators...")
         educators = fetch_educators(json_data=json_data, filename=filename, known_educator_uids=known_educator_uids)
 
-        # Process educators in a queue
         educator_queue = [(username, uid) for username, uid in educators]
         processed_educators = set()
 
@@ -338,7 +347,7 @@ def fetch_data_in_background():
 
         if fetching:
             print("\nCompleted one full cycle. Restarting fetch for new data...")
-            time.sleep(60)  # Wait before restarting the cycle
+            time.sleep(60)
         else:
             break
 
@@ -363,6 +372,11 @@ async def now_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
     await update.message.reply_text("Starting data fetch... ☠️")
     
+    # Initialize JSON file
+    with json_lock:
+        with open("funkabhosda.json", "w", encoding="utf-8") as f:
+            json.dump({"educators": [], "courses": {}, "batches": {}}, f)
+    
     # Start progress updater
     asyncio.create_task(progress_updater())
     
@@ -383,7 +397,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     """Start the Telegram bot."""
-    bot_token = '7862470692:AAFTtszPX_Lhp85AAVdb58b5_SSdQD7dCtg'  # Replace with your actual bot token
+    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAGx2T32AprYtmV0Q2nHoa9XzU-unouapZc")  # Use environment variable
     application = Application.builder().token(bot_token).build()
     
     application.add_handler(CommandHandler("now", now_command))
