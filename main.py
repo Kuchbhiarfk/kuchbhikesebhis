@@ -324,7 +324,7 @@ async def progress_updater():
                 await send_progress_bar(educator_count, course_count, batch_count)
             
             current_time = time.time()
-            if current_time - last_upload_time >= 120:
+            if current_time - last_upload_time >= 1800:
                 await upload_json()
                 last_upload_time = current_time
                 
