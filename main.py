@@ -1,18 +1,29 @@
+import pymongo
+from pymongo import MongoClient
 import requests
 import json
 import os
 import time
-import gc
-import psutil
-import ijson
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from threading import Thread, Lock
+from threading import Thread
 import asyncio
-import aiofiles
+import re
+from datetime import datetime
+import dateutil.parser
+
+# MongoDB setup
+MONGO_URI = "mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"  # Replace with your MongoDB Atlas URI
+client = MongoClient(MONGO_URI)
+db = client["unacademy_db"]
+educators_collection = db["educators"]
+educators_collection.create_index("uid", unique=True)
 
 # Global variables
 fetching = False
+fetching_educators = False
+last_json_data = {}
+last_educators_json_data = []
 last_educator_count = 0
 last_course_count = 0
 last_batch_count = 0
@@ -20,209 +31,95 @@ progress_message = None
 update_context = None
 update_obj = None
 loop = None
-json_lock = Lock()
-filename = "funkabhosda.json"
-offset_file = "offsets.json"
-uploaded_file_ids = []  # To store Telegram file_ids of uploaded chunks
-fetch_mode = None  # 'now' or 'educators'
-MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB per chunk
 
-async def save_to_json(filename, data):
-    """Save data to a JSON file with locking."""
-    try:
-        async with aiofiles.open(filename, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(data, indent=2, ensure_ascii=False))
-        print(f"Saved data to {filename}")
-        gc.collect()
-    except Exception as e:
-        print(f"Error saving JSON: {e}")
+def save_to_json(filename, data):
+    """Save data to a JSON file."""
+    with open(filename, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
-async def save_offsets(offsets):
-    """Save offsets to track fetching progress."""
-    try:
-        async with aiofiles.open(offset_file, 'w', encoding='utf-8') as f:
-            await f.write(json.dumps(offsets, indent=2))
-        print(f"Saved offsets to {offset_file}")
-    except Exception as e:
-        print(f"Error saving offsets: {e}")
+def save_educators_to_mongodb(educators):
+    """Save unique educators to MongoDB and return the list for JSON."""
+    unique_educators = []
+    seen_pairs = set()
+    for educator in educators:
+        username = normalize_username(educator.get("username", ""))
+        uid = educator.get("uid", "")
+        if username and uid and (username, uid) not in seen_pairs:
+            seen_pairs.add((username, uid))
+            doc = {"username": username, "uid": uid}
+            try:
+                educators_collection.update_one(
+                    {"uid": uid},
+                    {"$set": doc},
+                    upsert=True
+                )
+                unique_educators.append(doc)
+            except pymongo.errors.DuplicateKeyError:
+                print(f"Duplicate educator UID {uid} skipped.")
+            except pymongo.errors.PyMongoError as e:
+                print(f"Error saving educator to MongoDB: {e}")
+    save_to_json("educators.json", unique_educators)
+    return unique_educators
 
-async def load_offsets():
-    """Load offsets from file."""
-    try:
-        if not os.path.exists(offset_file):
-            return {}
-        async with aiofiles.open(offset_file, 'r', encoding='utf-8') as f:
-            return json.loads(await f.read())
-    except Exception as e:
-        print(f"Error loading offsets: {e}")
-        return {}
-
-def split_json_file(filename, max_size=MAX_FILE_SIZE):
-    """Split JSON file into chunks if larger than max_size."""
-    try:
-        if not os.path.exists(filename) or os.path.getsize(filename) <= max_size:
-            return [filename]
-        
-        chunks = []
-        chunk_index = 0
-        current_chunk = {"educators": [], "courses": {}, "batches": {}} if fetch_mode == "now" else {"educators": []}
-        current_size = 0
-
-        with open(filename, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        # Split educators
-        for educator in data.get("educators", []):
-            educator_size = len(json.dumps(educator, ensure_ascii=False).encode('utf-8'))
-            if current_size + educator_size > max_size:
-                chunk_filename = f"funkabhosda_part_{chunk_index}.json"
-                asyncio.run_coroutine_threadsafe(save_to_json(chunk_filename, current_chunk), loop).result()
-                chunks.append(chunk_filename)
-                chunk_index += 1
-                current_chunk = {"educators": [], "courses": {}, "batches": {}} if fetch_mode == "now" else {"educators": []}
-                current_size = 0
-            current_chunk["educators"].append(educator)
-            current_size += educator_size
-
-        if fetch_mode == "now":
-            # Split courses
-            for username, courses in data.get("courses", {}).items():
-                current_chunk["courses"][username] = []
-                for course in courses:
-                    course_size = len(json.dumps(course, ensure_ascii=False).encode('utf-8'))
-                    if current_size + course_size > max_size:
-                        chunk_filename = f"funkabhosda_part_{chunk_index}.json"
-                        asyncio.run_coroutine_threadsafe(save_to_json(chunk_filename, current_chunk), loop).result()
-                        chunks.append(chunk_filename)
-                        chunk_index += 1
-                        current_chunk = {"educators": [], "courses": {}, "batches": {}} if fetch_mode == "now" else {"educators": []}
-                        current_size = 0
-                    current_chunk["courses"].setdefault(username, []).append(course)
-                    current_size += course_size
-
-            # Split batches
-            for username, batches in data.get("batches", {}).items():
-                current_chunk["batches"][username] = []
-                for batch in batches:
-                    batch_size = len(json.dumps(batch, ensure_ascii=False).encode('utf-8'))
-                    if current_size + batch_size > max_size:
-                        chunk_filename = f"funkabhosda_part_{chunk_index}.json"
-                        asyncio.run_coroutine_threadsafe(save_to_json(chunk_filename, current_chunk), loop).result()
-                        chunks.append(chunk_filename)
-                        chunk_index += 1
-                        current_chunk = {"educators": [], "courses": {}, "batches": {}} if fetch_mode == "now" else {"educators": []}
-                        current_size = 0
-                    current_chunk["batches"].setdefault(username, []).append(batch)
-                    current_size += batch_size
-
-        # Save the last chunk
-        if current_chunk.get("educators") or (fetch_mode == "now" and (current_chunk.get("courses") or current_chunk.get("batches"))):
-            chunk_filename = f"funkabhosda_part_{chunk_index}.json"
-            asyncio.run_coroutine_threadsafe(save_to_json(chunk_filename, current_chunk), loop).result()
-            chunks.append(chunk_filename)
-
-        return chunks
-    except Exception as e:
-        print(f"Error splitting JSON: {e}")
+def split_json_file(filename, max_size_mb=50):
+    """Split a JSON file into parts if it exceeds max_size_mb."""
+    max_size_bytes = max_size_mb * 1024 * 1024
+    if not os.path.exists(filename):
         return [filename]
-
-async def merge_json_files(existing_data, new_data, mode):
-    """Merge new data into existing data, avoiding duplicates."""
-    try:
-        # Merge educators
-        existing_uids = {e["uid"] for e in existing_data.get("educators", [])}
-        for educator in new_data.get("educators", []):
-            if educator["uid"] not in existing_uids:
-                existing_data.setdefault("educators", []).append(educator)
-                existing_uids.add(educator["uid"])
-
-        if mode == "now":
-            # Merge courses
-            existing_data.setdefault("courses", {})
-            for username, courses in new_data.get("courses", {}).items():
-                existing_course_uids = {c["uid"] for c in existing_data["courses"].get(username, [])}
-                for course in courses:
-                    if course["uid"] not in existing_course_uids:
-                        existing_data["courses"].setdefault(username, []).append(course)
-
-            # Merge batches
-            existing_data.setdefault("batches", {})
-            for username, batches in new_data.get("batches", {}).items():
-                existing_batch_uids = {b["uid"] for b in existing_data["batches"].get(username, [])}
-                for batch in batches:
-                    if batch["uid"] not in existing_batch_uids:
-                        existing_data["batches"].setdefault(username, []).append(batch)
-
-        return existing_data
-    except Exception as e:
-        print(f"Error merging JSON: {e}")
-        return existing_data
-
-async def download_and_merge_chunks():
-    """Download all uploaded JSON chunks and merge them."""
-    global uploaded_file_ids
-    if not uploaded_file_ids:
-        print("No previous file_ids to download")
-        return {"educators": [], "courses": {}, "batches": {}} if fetch_mode == "now" else {"educators": []}
-
-    merged_data = {"educators": [], "courses": {}, "batches": {}} if fetch_mode == "now" else {"educators": []}
-    for file_id in uploaded_file_ids:
-        try:
-            file = await update_context.bot.get_file(file_id)
-            file_content = await file.download_as_bytearray()
-            chunk_data = json.loads(file_content.decode('utf-8'))
-            merged_data = await merge_json_files(merged_data, chunk_data, fetch_mode)
-            print(f"Merged chunk with file_id: {file_id}")
-        except Exception as e:
-            print(f"Error downloading/merging chunk {file_id}: {e}")
     
-    await save_to_json(filename, merged_data)
-    return merged_data
+    file_size = os.path.getsize(filename)
+    if file_size <= max_size_bytes:
+        return [filename]
+    
+    with open(filename, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    if not isinstance(data, list):
+        return [filename]
+    
+    part_files = []
+    part_data = []
+    part_index = 1
+    current_size = 0
+    item_size_estimate = file_size / len(data) if data else 1
+    
+    for item in data:
+        item_size = len(json.dumps(item, ensure_ascii=False).encode('utf-8'))
+        if current_size + item_size > max_size_bytes and part_data:
+            part_filename = f"educators_part_{part_index}.json"
+            save_to_json(part_filename, part_data)
+            part_files.append(part_filename)
+            part_data = []
+            current_size = 0
+            part_index += 1
+        part_data.append(item)
+        current_size += item_size
+    
+    if part_data:
+        part_filename = f"educators_part_{part_index}.json"
+        save_to_json(part_filename, part_data)
+        part_files.append(part_filename)
+    
+    if os.path.exists(filename):
+        os.remove(filename)
+        print(f"Deleted original {filename} after splitting")
+    
+    return part_files
 
-def count_items(filename, mode):
-    """Count items in JSON with minimal memory usage using ijson."""
-    try:
-        if not os.path.exists(filename):
-            print(f"{filename} not found for counting")
-            return 0, 0, 0
-        
-        educator_count = 0
-        course_count = 0
-        batch_count = 0
-        with open(filename, 'rb') as f:
-            parser = ijson.parse(f)
-            current_key = None
-            for prefix, event, value in parser:
-                if prefix == "educators.item" and event == "map_key":
-                    educator_count += 1
-                if mode == "now":
-                    if prefix.startswith("courses.") and prefix.endswith(".item") and event == "map_key":
-                        course_count += 1
-                    if prefix.startswith("batches.") and prefix.endswith(".item") and event == "map_key":
-                        batch_count += 1
-        
-        print(f"Counted: Educators={educator_count}, Courses={course_count}, Batches={batch_count}")
-        gc.collect()
-        return educator_count, course_count, batch_count
-    except Exception as e:
-        print(f"Error counting items: {e}")
-        return 0, 0, 0
-
-def fetch_educators(goal_uid="TMUVD", limit=10, max_offset=1000, json_data=None, filename=filename, known_educator_uids=None, start_offset=0):
-    """Fetch educators with low memory."""
+def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, educators_list=None, known_educator_uids=None):
+    """Fetch educators and append to educators_list."""
     base_url = "https://unacademy.com/api/v1/uplus/subscription/goal_educators/"
     seen_usernames = set()
     educators = []
-    json_data["educators"] = json_data.get("educators", [])
-    offset = start_offset
+    educators_list = educators_list if educators_list is not None else []
+    offset = 0
 
     while offset <= max_offset:
         url = f"{base_url}?goal_uid={goal_uid}&limit={limit}&offset={offset}"
         try:
-            response = requests.get(url, timeout=10, stream=True)
+            response = requests.get(url)
             response.raise_for_status()
             data = response.json()
-            time.sleep(1)
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print("Error E001 encountered. Stopping educator fetch.")
@@ -234,14 +131,14 @@ def fetch_educators(goal_uid="TMUVD", limit=10, max_offset=1000, json_data=None,
                 break
 
             for i, educator in enumerate(results, start=offset + 1):
-                username = educator.get("username")
-                uid = educator.get("uid")
+                username = normalize_username(educator.get("username", ""))
+                uid = educator.get("uid", "")
                 if username and uid not in known_educator_uids:
                     seen_usernames.add(username)
                     known_educator_uids.add(uid)
                     educators.append((username, uid))
                     print(f"{i} {educator.get('first_name')} {educator.get('last_name')} : {username} : {uid} : {educator.get('avatar')}")
-                    json_data["educators"].append({
+                    educators_list.append({
                         "first_name": educator.get("first_name", "N/A"),
                         "last_name": educator.get("last_name", "N/A"),
                         "username": username,
@@ -249,37 +146,52 @@ def fetch_educators(goal_uid="TMUVD", limit=10, max_offset=1000, json_data=None,
                         "avatar": educator.get("avatar", "N/A")
                     })
 
-            with json_lock:
-                asyncio.run_coroutine_threadsafe(save_to_json(filename, json_data), loop).result()
-                offsets = asyncio.run_coroutine_threadsafe(load_offsets(), loop).result()
-                offsets["educators"] = offset + limit
-                asyncio.run_coroutine_threadsafe(save_offsets(offsets), loop).result()
-            del data, results
-            gc.collect()
             offset += limit
-
         except requests.RequestException as e:
             print(f"Request failed for educators: {e}")
-            time.sleep(5)
-            continue
+            break
 
-    return educators
+    return educators, educators_list
 
-def fetch_courses(username, limit=10, max_offset=1000, json_data=None, filename=filename, start_offset=1):
-    """Fetch courses with low memory."""
+def fetch_educator_by_username(username):
+    """Fetch educator details by username from course API."""
+    base_url = f"https://unacademy.com/api/sheldon/v1/list/course?username={username}&limit=1&type=latest"
+    try:
+        response = requests.get(base_url)
+        response.raise_for_status()
+        data = response.json()
+
+        results = data.get("results")
+        if results and isinstance(results, list) and len(results) > 0:
+            author = results[0].get("author")
+            if author:
+                return {
+                    "first_name": author.get("first_name", "N/A"),
+                    "last_name": author.get("last_name", "N/A"),
+                    "username": normalize_username(author.get("username", "N/A")),
+                    "uid": author.get("uid", "N/A"),
+                    "avatar": author.get("avatar", "N/A")
+                }
+        print(f"No courses found for username: {username}")
+        return None
+    except requests.RequestException as e:
+        print(f"Failed to fetch educator details for {username}: {e}")
+        return None
+
+def fetch_courses(username, limit=50, max_offset=1000, json_data=None, filename="funkabhosda.json"):
+    """Fetch courses for a given username and save to JSON."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/course?username={username}&limit={limit}&type=latest"
     seen_uids = set()
     json_data["courses"] = json_data.get("courses", {})
     json_data["courses"][username] = json_data["courses"].get(username, [])
-    offset = start_offset
+    offset = 1
 
     while offset <= max_offset:
         url = f"{base_url}&offset={offset}"
         try:
-            response = requests.get(url, timeout=10, stream=True)
+            response = requests.get(url)
             response.raise_for_status()
             data = response.json()
-            time.sleep(1)
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for courses of {username}. Stopping course fetch.")
@@ -314,37 +226,26 @@ def fetch_courses(username, limit=10, max_offset=1000, json_data=None, filename=
                         "ends_at": course.get("ends_at", "N/A")
                     })
 
-            with json_lock:
-                asyncio.run_coroutine_threadsafe(save_to_json(filename, json_data), loop).result()
-                offsets = asyncio.run_coroutine_threadsafe(load_offsets(), loop).result()
-                offsets[f"courses_{username}"] = offset + limit
-                asyncio.run_coroutine_threadsafe(save_offsets(offsets), loop).result()
-            del data, results
-            gc.collect()
+            save_to_json(filename, json_data)
             offset += limit
-
         except requests.RequestException as e:
             print(f"Failed to fetch courses for {username}: {e}")
-            time.sleep(5)
-            continue
+            break
 
-def fetch_batches(username, known_educator_uids, limit=10, max_offset=1000, json_data=None, filename=filename, educators_only=False, start_offset=2):
-    """Fetch batches, optionally only for new educators."""
+def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, educators_list=None):
+    """Fetch batches for a given username and append new educators to educators_list."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/batch?username={username}&limit={limit}"
     seen_batch_uids = set()
     new_educators = []
-    if not educators_only:
-        json_data["batches"] = json_data.get("batches", {})
-        json_data["batches"][username] = json_data["batches"].get(username, [])
-    offset = start_offset
+    educators_list = educators_list if educators_list is not None else []
+    offset = 2
 
     while offset <= max_offset:
         url = f"{base_url}&offset={offset}"
         try:
-            response = requests.get(url, timeout=10, stream=True)
+            response = requests.get(url)
             response.raise_for_status()
             data = response.json()
-            time.sleep(1)
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
                 print(f"Error E001 encountered for batches of {username}. Stopping batch fetch.")
@@ -363,365 +264,487 @@ def fetch_batches(username, known_educator_uids, limit=10, max_offset=1000, json
                 batch_uid = batch.get("uid")
                 if batch_uid and batch_uid not in seen_batch_uids:
                     seen_batch_uids.add(batch_uid)
-                    if not educators_only:
-                        print(f"{i} Batch Name :- {batch.get('name', 'N/A')}")
-                        print(f"Cover Photo :- {batch.get('cover_photo', 'N/A')}")
-                        print(f"Exam Type :- {batch.get('goal', {}).get('name', 'N/A')}")
-                        print(f"Uid :- {batch_uid}")
-                        print(f"Slug :- {batch.get('slug', 'N/A')}")
-                        print(f"Syllabus Tag :- {batch.get('syllabus_tag', 'N/A')}")
-                        print(f"Starts At :- {batch.get('starts_at', 'N/A')}")
-                        print(f"Completed At :- {batch.get('completed_at', 'N/A')}")
-                        print("----------------------")
-                        json_data["batches"][username].append({
-                            "name": batch.get("name", "N/A"),
-                            "cover_photo": batch.get("cover_photo", "N/A"),
-                            "exam_type": batch.get("goal", {}).get("name", "N/A"),
-                            "uid": batch_uid,
-                            "slug": batch.get("slug", "N/A"),
-                            "syllabus_tag": batch.get("syllabus_tag", "N/A"),
-                            "starts_at": batch.get("starts_at", "N/A"),
-                            "completed_at": batch.get("completed_at", "N/A")
-                        })
-
                     authors = batch.get("authors", [])
                     for author in authors:
                         author_uid = author.get("uid")
+                        author_username = normalize_username(author.get("username", ""))
                         if author_uid and author_uid not in known_educator_uids:
                             known_educator_uids.add(author_uid)
                             new_educators.append({
                                 "first_name": author.get("first_name", "N/A"),
                                 "last_name": author.get("last_name", "N/A"),
-                                "username": author.get("username", "N/A"),
+                                "username": author_username,
                                 "uid": author_uid,
                                 "avatar": author.get("avatar", "N/A")
                             })
-                            json_data["educators"].append({
+                            educators_list.append({
                                 "first_name": author.get("first_name", "N/A"),
                                 "last_name": author.get("last_name", "N/A"),
-                                "username": author.get("username", "N/A"),
+                                "username": author_username,
                                 "uid": author_uid,
                                 "avatar": author.get("avatar", "N/A")
                             })
-                            print(f"New educator from batch: {author.get('first_name')} {author.get('last_name')} : {author.get('username')} : {author_uid}")
 
-            with json_lock:
-                asyncio.run_coroutine_threadsafe(save_to_json(filename, json_data), loop).result()
-                offsets = asyncio.run_coroutine_threadsafe(load_offsets(), loop).result()
-                offsets[f"batches_{username}"] = offset + limit
-                asyncio.run_coroutine_threadsafe(save_offsets(offsets), loop).result()
-            del data, results
-            gc.collect()
             offset += limit
-
         except requests.RequestException as e:
             print(f"Failed to fetch batches for {username}: {e}")
-            time.sleep(5)
-            continue
+            break
 
-    return new_educators
+    return new_educators, educators_list
 
-async def send_progress_bar(educator_count, course_count, batch_count, mode):
+def count_items(json_data):
+    """Count educators, courses, and batches in json_data."""
+    educator_count = len(json_data.get("educators", []))
+    course_count = sum(len(courses) for courses in json_data.get("courses", {}).values())
+    batch_count = sum(len(batches) for batches in json_data.get("batches", {}).values())
+    return educator_count, course_count, batch_count
+
+async def send_progress_bar():
     """Send or update the progress bar message."""
-    global progress_message, update_obj, update_context
-    memory_percent = psutil.virtual_memory().percent
-    if mode == "educators":
-        progress_text = (
-            "📊 *Progress Bar*\n"
-            f"Total Educators Fetched: {educator_count}\n"
-            f"Memory Usage: {memory_percent:.1f}%"
-        )
-    else:  # mode == "now"
+    global progress_message, update_obj, update_context, fetching_educators
+    if fetching_educators:
+        educator_count = educators_collection.count_documents({})
+        progress_text = f"Total Educators Fetched: {educator_count}"
+    else:
+        educator_count, course_count, batch_count = count_items(last_json_data)
         progress_text = (
             "📊 *Progress Bar*\n"
             f"Total Educators Fetched: {educator_count}\n"
             f"Total Courses Fetched: {course_count}\n"
-            f"Total Batches Fetched: {batch_count}\n"
-            f"Memory Usage: {memory_percent:.1f}%"
+            f"Total Batches Fetched: {batch_count}"
         )
     
-    try:
-        if progress_message is None:
-            progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown")
-        else:
-            await progress_message.edit_text(progress_text, parse_mode="Markdown")
-        print("Progress bar updated successfully")
-    except Exception as e:
-        print(f"Error updating progress bar: {e}")
-        progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown")
+    if progress_message is None:
+        progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown" if not fetching_educators else None)
+    else:
+        try:
+            await progress_message.edit_text(progress_text, parse_mode="Markdown" if not fetching_educators else None)
+        except Exception as e:
+            print(f"Error updating progress bar: {e}")
+            progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown" if not fetching_educators else None)
 
 async def upload_json():
-    """Upload JSON file(s) to Telegram and clear them."""
-    global update_context, update_obj, uploaded_file_ids
-    max_retries = 3
-    retry_delay = 5
-    uploaded_file_ids = []
-
+    """Upload JSON file(s) to Telegram, splitting if >50MB, and delete files."""
+    global update_obj, update_context, fetching_educators
     try:
-        if not os.path.exists(filename):
-            error_msg = f"Error: {filename} file not found."
-            print(error_msg)
-            await update_obj.message.reply_text(error_msg)
-            return
-
-        # Split JSON if needed
-        chunks = split_json_file(filename)
-        for chunk_file in chunks:
-            for attempt in range(max_retries):
-                try:
-                    async with aiofiles.open(chunk_file, "rb") as f:
-                        file_content = await f.read()
-                    
-                    message = await update_context.bot.send_document(
+        if fetching_educators:
+            educators = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+            save_to_json("educators.json", educators)
+            json_files = split_json_file("educators.json", max_size_mb=50)
+            for i, json_file in enumerate(json_files, 1):
+                with open(json_file, "rb") as f:
+                    caption = f"Updated educators.json (Part {i} of {len(json_files)})" if len(json_files) > 1 else "Updated educators.json"
+                    await update_context.bot.send_document(
                         chat_id=update_obj.effective_chat.id,
-                        document=file_content,
-                        filename=os.path.basename(chunk_file),
-                        caption=f"Updated {os.path.basename(chunk_file)}"
+                        document=f,
+                        caption=caption
                     )
-                    uploaded_file_ids.append(message.document.file_id)
-                    print(f"Uploaded {chunk_file} with file_id: {message.document.file_id}")
-                    break
-                except Exception as e:
-                    error_msg = f"Error uploading {chunk_file} on attempt {attempt + 1}: {str(e)}"
-                    print(error_msg)
-                    if attempt < max_retries - 1:
-                        print(f"Retrying in {retry_delay} seconds...")
-                        await asyncio.sleep(retry_delay)
-                    else:
-                        await update_obj.message.reply_text(error_msg)
-
-        # Clear files
-        for chunk_file in chunks:
-            try:
-                os.remove(chunk_file)
-                print(f"Cleared {chunk_file} from server")
-            except Exception as e:
-                print(f"Error clearing {chunk_file}: {e}")
-
+                os.remove(json_file)
+                print(f"Deleted {json_file} after upload")
+        else:
+            json_files = ["funkabhosda.json"] if os.path.exists("funkabhosda.json") else []
+            for json_file in json_files:
+                with open(json_file, "rb") as f:
+                    await update_context.bot.send_document(
+                        chat_id=update_obj.effective_chat.id,
+                        document=f,
+                        caption="Updated funkabhosda.json"
+                    )
+                os.remove(json_file)
+                print(f"Deleted {json_file} after upload")
+            educators = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+            save_to_json("educators.json", educators)
+            json_files = split_json_file("educators.json", max_size_mb=50)
+            for i, json_file in enumerate(json_files, 1):
+                with open(json_file, "rb") as f:
+                    caption = f"Updated educators.json (Part {i} of {len(json_files)})" if len(json_files) > 1 else "Updated educators.json"
+                    await update_context.bot.send_document(
+                        chat_id=update_obj.effective_chat.id,
+                        document=f,
+                        caption=caption
+                    )
+                os.remove(json_file)
+                print(f"Deleted {json_file} after upload")
     except Exception as e:
-        print(f"Error in upload_json: {e}")
+        await update_obj.message.reply_text(f"Error uploading JSON: {e}")
+        for file in ["educators.json", "funkabhosda.json"] + [f for f in os.listdir() if f.startswith("educators_part_")]:
+            if os.path.exists(file):
+                os.remove(file)
+                print(f"Deleted {file} due to upload error")
+
+async def periodic_educators_upload():
+    """Fetch educators from MongoDB and upload to Telegram every 20 minutes."""
+    global update_context, update_obj, loop
+    while fetching and fetching_educators:  # Only run while /educators is active
+        try:
+            print("Starting periodic educators upload...")
+            educators = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+            educator_count = len(educators)
+            print(f"Fetched {educator_count} educators from MongoDB")
+            
+            save_to_json("educators.json", educators)
+            json_files = split_json_file("educators.json", max_size_mb=50)
+            for i, json_file in enumerate(json_files, 1):
+                with open(json_file, "rb") as f:
+                    caption = f"Periodic educators.json (Part {i} of {len(json_files)})" if len(json_files) > 1 else "Periodic educators.json"
+                    await update_context.bot.send_document(
+                        chat_id=update_obj.effective_chat.id,
+                        document=f,
+                        caption=caption
+                    )
+                os.remove(json_file)
+                print(f"Deleted {json_file} after periodic upload")
+            
+            progress_text = f"Periodic Update: Total Educators Fetched: {educator_count}"
+            if update_obj:
+                await update_obj.message.reply_text(progress_text)
+        except Exception as e:
+            print(f"Error in periodic upload: {e}")
+            if update_obj:
+                await update_obj.message.reply_text(f"Error in periodic upload: {e}")
+            for file in ["educators.json"] + [f for f in os.listdir() if f.startswith("educators_part_")]:
+                if os.path.exists(file):
+                    os.remove(file)
+                    print(f"Deleted {file} due to periodic upload error")
+        
+        await asyncio.sleep(20 * 60)
 
 async def progress_updater():
-    """Update progress bar every 30 seconds and upload JSON every 10 minutes."""
-    global last_educator_count, last_course_count, last_batch_count, fetch_mode
+    """Update progress bar every 60 seconds and upload JSON every 2 minutes."""
+    global last_json_data, last_educators_json_data, last_educator_count, last_course_count, last_batch_count
     last_upload_time = time.time()
     
     while fetching:
         try:
-            educator_count, course_count, batch_count = count_items(filename, fetch_mode)
-            
-            if (educator_count != last_educator_count or
-                (fetch_mode == "now" and (course_count != last_course_count or batch_count != last_batch_count))):
-                last_educator_count, last_course_count, last_batch_count = educator_count, course_count, batch_count
-                await send_progress_bar(educator_count, course_count, batch_count, fetch_mode)
+            if fetching_educators:
+                educator_count = educators_collection.count_documents({})
+                if educator_count != last_educator_count:
+                    last_educator_count = educator_count
+                    last_educators_json_data = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+                    await send_progress_bar()
+            else:
+                with open("funkabhosda.json", "r", encoding="utf-8") as f:
+                    current_json_data = json.load(f)
+                educator_count, course_count, batch_count = count_items(current_json_data)
+                if (educator_count != last_educator_count or
+                    course_count != last_course_count or
+                    batch_count != last_batch_count):
+                    last_json_data = current_json_data
+                    save_educators_to_mongodb(current_json_data.get("educators", []))
+                    last_educators_json_data = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+                    last_educator_count, last_course_count, last_batch_count = educator_count, course_count, batch_count
+                    await send_progress_bar()
             
             current_time = time.time()
-            if current_time - last_upload_time >= 600:  # 10 minutes
+            if current_time - last_upload_time >= 120:
                 await upload_json()
                 last_upload_time = current_time
-                # Download and merge previous chunks
-                await download_and_merge_chunks()
-                # Initialize new JSON
-                with json_lock:
-                    initial_data = {"educators": [], "courses": {}, "batches": {}} if fetch_mode == "now" else {"educators": []}
-                    asyncio.run_coroutine_threadsafe(save_to_json(filename, initial_data), loop).result()
                 
         except Exception as e:
             print(f"Error in progress updater: {e}")
-            await asyncio.sleep(5)
         
-        await asyncio.sleep(30)
+        await asyncio.sleep(60)
 
-def fetch_data_in_background():
-    """Run the fetching process in a background thread for /now."""
-    global fetching, progress_message, fetch_mode, uploaded_file_ids
-    
-    json_data = {"educators": [], "courses": {}, "batches": {}}
-    known_educator_uids = set()
-    chunk_size = 5
-    offsets = asyncio.run_coroutine_threadsafe(load_offsets(), loop).result()
+def normalize_username(username):
+    """Normalize username to lowercase and remove special characters."""
+    return re.sub(r'[^a-zA-Z0-9]', '', username).lower()
 
-    while fetching:
-        print(f"Memory before cycle: {psutil.virtual_memory().percent:.1f}%")
-        start_offset = offsets.get("educators", 0)
-        educators = fetch_educators(json_data=json_data, known_educator_uids=known_educator_uids, start_offset=start_offset)
+def filter_by_time(json_data, current_time, future=True):
+    """Filter courses and batches based on time (future or past)."""
+    filtered_data = {
+        "educators": json_data["educators"],
+        "courses": {},
+        "batches": {}
+    }
+    username = list(json_data["courses"].keys())[0] if json_data["courses"] else None
+    if username:
+        filtered_data["courses"][username] = []
+        filtered_data["batches"][username] = []
 
-        educator_queue = [(username, uid) for username, uid in educators]
-        processed_educators = set()
-
-        while educator_queue and fetching:
-            current_educators = educator_queue[:chunk_size]
-            educator_queue = educator_queue[chunk_size:]
-            print(f"\nProcessing chunk of {len(current_educators)} educators...")
-
-            for username, uid in current_educators:
-                if not fetching:
-                    break
-                if username in processed_educators:
+        for course in json_data["courses"].get(username, []):
+            ends_at = course.get("ends_at")
+            if ends_at and ends_at != "N/A":
+                try:
+                    end_time = dateutil.parser.isoparse(ends_at)
+                    if (future and end_time > current_time) or (not future and end_time <= current_time):
+                        filtered_data["courses"][username].append(course)
+                except ValueError:
                     continue
-                processed_educators.add(username)
 
-                print(f"\nFetching courses for {username}...")
-                start_offset = offsets.get(f"courses_{username}", 1)
-                fetch_courses(username, json_data=json_data, start_offset=start_offset)
-                time.sleep(1)
+        for batch in json_data["batches"].get(username, []):
+            completed_at = batch.get("completed_at")
+            if completed_at and completed_at != "N/A":
+                try:
+                    complete_time = dateutil.parser.isoparse(completed_at)
+                    if (future and complete_time > current_time) or (not future and complete_time <= current_time):
+                        filtered_data["batches"][username].append(batch)
+                except ValueError:
+                    continue
 
-                print(f"\nFetching batches for {username}...")
-                start_offset = offsets.get(f"batches_{username}", 2)
-                new_educators = fetch_batches(username, known_educator_uids, json_data=json_data, start_offset=start_offset)
-                time.sleep(1)
+    return filtered_data
 
-                if new_educators:
-                    print(f"\nNew educators found in batches for {username}:")
-                    for educator in new_educators:
-                        print(f"{educator['first_name']} {educator['last_name']} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
-                        educator_queue.append((educator["username"], educator["uid"]))
+async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the /add command."""
+    global update_context, update_obj
+    update_context = context
+    update_obj = update
 
-            del current_educators
-            gc.collect()
-            print(f"Memory after chunk: {psutil.virtual_memory().percent:.1f}%")
+    if not context.args:
+        await update.message.reply_text("Please provide a username. Usage: /add {username}")
+        return
 
-        if fetching:
-            print("\nCompleted one full cycle. Restarting fetch for new data...")
-            time.sleep(60)
-        else:
-            break
+    raw_username = context.args[0]
+    username = normalize_username(raw_username)
+    await update.message.reply_text(f"Fetching data for username: {username}...")
 
-    print("\nFetching stopped.")
-    asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
-    asyncio.run_coroutine_threadsafe(
-        update_obj.message.reply_text(f"Fetching stopped. Final {filename} uploaded."), loop).result()
-    
-    fetching = False
-    uploaded_file_ids = []
-    progress_message = None
+    educator = fetch_educator_by_username(username)
+    if not educator:
+        await update.message.reply_text(f"No educator found with username: {username}")
+        return
+
+    json_data = {
+        "educators": [educator],
+        "courses": {},
+        "batches": {}
+    }
+    all_filename = f"{username}_data.json"
+    current_filename = f"{username}_current.json"
+    completed_filename = f"{username}_completed.json"
+    known_educator_uids = {educator["uid"]}
+
+    print(f"Fetching courses for {username}...")
+    fetch_courses(username, json_data=json_data, filename=all_filename)
+
+    print(f"Fetching batches for {username}...")
+    fetch_batches(username, known_educator_uids, json_data=json_data, filename=all_filename)
+
+    current_time = datetime.now(dateutil.tz.tzutc())
+    last_checked = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    all_course_count = len(json_data["courses"].get(username, []))
+    all_batch_count = len(json_data["batches"].get(username, []))
+
+    current_json_data = filter_by_time(json_data, current_time, future=True)
+    completed_json_data = filter_by_time(json_data, current_time, future=False)
+
+    save_to_json(current_filename, current_json_data)
+    save_to_json(completed_filename, completed_json_data)
+
+    current_course_count = len(current_json_data["courses"].get(username, []))
+    current_batch_count = len(current_json_data["batches"].get(username, []))
+    completed_course_count = len(completed_json_data["courses"].get(username, []))
+    completed_batch_count = len(completed_json_data["batches"].get(username, []))
+
+    caption_template = (
+        f"Teacher Name :- {educator['first_name']} {educator['last_name']}\n"
+        f"Username :- {username}\n"
+        f"Uid :- {educator['uid']}\n"
+        f"Total Batches :- {{batch_count}}\n"
+        f"Total Courses :- {{course_count}}\n"
+        f"Thumbnail :- {educator['avatar']}\n"
+        f"Last Checked :- {last_checked}"
+    )
+
+    files_to_upload = [
+        (all_filename, all_course_count, all_batch_count, "All courses and batches"),
+        (current_filename, current_course_count, current_batch_count, "Current (future) courses and batches"),
+        (completed_filename, completed_course_count, completed_batch_count, "Completed (past) courses and batches")
+    ]
+
+    for filename, course_count, batch_count, description in files_to_upload:
+        try:
+            with open(filename, "rb") as f:
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=f,
+                    caption=caption_template.format(course_count=course_count, batch_count=batch_count)
+                )
+            os.remove(filename)
+            print(f"Deleted {filename} after upload")
+        except Exception as e:
+            await update.message.reply_text(f"Error uploading {description}: {e}")
+            if os.path.exists(filename):
+                os.remove(filename)
+                print(f"Deleted {filename} due to upload error")
+
+    await update.message.reply_text(f"Data for {username} uploaded successfully (all, current, and completed)!")
+
+async def educators_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the /educators command."""
+    global fetching, fetching_educators, update_context, update_obj, loop
+    if fetching:
+        await update.message.reply_text("Fetching is already in progress! Use /stop to stop it.")
+        return
+
+    fetching = True
+    fetching_educators = True
+    update_context = context
+    update_obj = update
+    loop = asyncio.get_running_loop()
+    await update.message.reply_text("Starting educators fetch... 📚")
+
+    asyncio.create_task(periodic_educators_upload())
+    asyncio.create_task(progress_updater())
+    thread = Thread(target=fetch_educators_in_background)
+    thread.start()
 
 def fetch_educators_in_background():
-    """Run the educator fetching process in a background thread for /educators."""
-    global fetching, progress_message, fetch_mode, uploaded_file_ids
+    """Run the educators fetching process in a background thread."""
+    global fetching, fetching_educators, last_educators_json_data, last_educator_count, progress_message
     
-    json_data = {"educators": []}
-    known_educator_uids = set()
-    chunk_size = 5
-    offsets = asyncio.run_coroutine_threadsafe(load_offsets(), loop).result()
+    educators_list = []
+    known_educator_uids = set(educators_collection.distinct("uid"))
 
-    while fetching:
-        print(f"Memory before cycle: {psutil.virtual_memory().percent:.1f}%")
-        start_offset = offsets.get("educators", 0)
-        educators = fetch_educators(json_data=json_data, known_educator_uids=known_educator_uids, start_offset=start_offset)
+    print("Fetching initial educators...")
+    educators, educators_list = fetch_educators(educators_list=educators_list, known_educator_uids=known_educator_uids)
+    save_educators_to_mongodb(educators_list)
 
-        educator_queue = [(username, uid) for username, uid in educators]
-        processed_educators = set()
+    educator_queue = [(username, uid) for username, uid in educators]
+    processed_educators = set()
 
-        while educator_queue and fetching:
-            current_educators = educator_queue[:chunk_size]
-            educator_queue = educator_queue[chunk_size:]
-            print(f"\nProcessing chunk of {len(current_educators)} educators...")
+    while educator_queue and fetching:
+        current_educators = educator_queue
+        educator_queue = []
+        print(f"\nProcessing {len(current_educators)} educators for batches...")
 
-            for username, uid in current_educators:
-                if not fetching:
-                    break
-                if username in processed_educators:
-                    continue
-                processed_educators.add(username)
+        for username, uid in current_educators:
+            if not fetching:
+                break
+            if username in processed_educators:
+                continue
+            processed_educators.add(username)
 
-                print(f"\nFetching batches for new educators from {username}...")
-                start_offset = offsets.get(f"batches_{username}", 2)
-                new_educators = fetch_batches(username, known_educator_uids, json_data=json_data, educators_only=True, start_offset=start_offset)
-                time.sleep(1)
+            print(f"\nFetching batches for {username} to find new educators...")
+            new_educators, educators_list = fetch_batches(username, known_educator_uids, educators_list=educators_list)
+            save_educators_to_mongodb(educators_list)
 
-                if new_educators:
-                    print(f"\nNew educators found in batches for {username}:")
-                    for educator in new_educators:
-                        educator_queue.append((educator["username"], educator["uid"]))
+            if new_educators:
+                print(f"\nNew educators found in batches for {username}:")
+                for educator in new_educators:
+                    print(f"{educator['first_name']} {educator['last_name']} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
+                    educator_queue.append((educator["username"], educator["uid"]))
+            else:
+                print(f"\nNo new educators found in batches for {username}.")
 
-            del current_educators
-            gc.collect()
-            print(f"Memory after chunk: {psutil.virtual_memory().percent:.1f}%")
-
-        if fetching:
-            print("\nCompleted one full cycle. Restarting fetch for new data...")
-            time.sleep(60)
-        else:
-            break
-
-    print("\nFetching stopped.")
-    asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
-    asyncio.run_coroutine_threadsafe(
-        update_obj.message.reply_text(f"Fetching stopped. Final {filename} uploaded."), loop).result()
+    if fetching:
+        print("\nAll educators processed. Final data saved to MongoDB.")
+        last_educators_json_data = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+        asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
+        asyncio.run_coroutine_threadsafe(
+            update_obj.message.reply_text("Educators fetch completed! Final educators.json uploaded."), loop).result()
+    else:
+        print("\nFetching stopped by user.")
+        last_educators_json_data = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+        asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
+        asyncio.run_coroutine_threadsafe(
+            update_obj.message.reply_text("Educators fetch stopped. Partial educators.json uploaded."), loop).result()
     
     fetching = False
-    uploaded_file_ids = []
+    fetching_educators = False
     progress_message = None
 
 async def now_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /now command."""
-    global fetching, update_context, update_obj, loop, fetch_mode, uploaded_file_ids
+    global fetching, fetching_educators, update_context, update_obj, loop
     if fetching:
         await update.message.reply_text("Fetching is already in progress! Use /stop to stop it.")
         return
     
     fetching = True
-    fetch_mode = "now"
+    fetching_educators = False
     update_context = context
     update_obj = update
     loop = asyncio.get_running_loop()
-    uploaded_file_ids = []
     await update.message.reply_text("Starting data fetch... ☠️")
     
-    with json_lock:
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump({"educators": [], "courses": {}, "batches": {}}, f)
-    
     asyncio.create_task(progress_updater())
-    
     thread = Thread(target=fetch_data_in_background)
     thread.start()
 
-async def educators_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle the /educators command."""
-    global fetching, update_context, update_obj, loop, fetch_mode, uploaded_file_ids
+def fetch_data_in_background():
+    """Run the full data fetching process in a background thread."""
+    global fetching, fetching_educators, last_json_data, last_educators_json_data, last_educator_count, last_course_count, last_batch_count, progress_message
+    
+    json_data = {
+        "educators": [],
+        "courses": {},
+        "batches": {}
+    }
+    known_educator_uids = set()
+    filename = "funkabhosda.json"
+
+    print("Fetching initial educators...")
+    educators, json_data["educators"] = fetch_educators(json_data=json_data, filename=filename, known_educator_uids=known_educator_uids)
+    save_educators_to_mongodb(json_data["educators"])
+
+    educator_queue = [(username, uid) for username, uid in educators]
+    processed_educators = set()
+
+    while educator_queue and fetching:
+        current_educators = educator_queue
+        educator_queue = []
+        print(f"\nProcessing {len(current_educators)} educators...")
+
+        for username, uid in current_educators:
+            if not fetching:
+                break
+            if username in processed_educators:
+                continue
+            processed_educators.add(username)
+
+            print(f"\nFetching courses for {username}...")
+            fetch_courses(username, json_data=json_data, filename=filename)
+
+            print(f"\nFetching batches for {username}...")
+            new_educators, json_data["educators"] = fetch_batches(username, known_educator_uids, json_data=json_data, filename=filename)
+            save_educators_to_mongodb(json_data["educators"])
+
+            if new_educators:
+                print(f"\nNew educators found in batches for {username}:")
+                for educator in new_educators:
+                    print(f"{educator['first_name']} {educator['last_name']} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
+                    educator_queue.append((educator["username"], educator["uid"]))
+            else:
+                print(f"\nNo new educators found in batches for {username}.")
+
     if fetching:
-        await update.message.reply_text("Fetching is already in progress! Use /stop to stop it.")
-        return
+        print("\nAll educators processed. Final data saved to funkabhosda.json and MongoDB.")
+        save_educators_to_mongodb(json_data["educators"])
+        asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
+        asyncio.run_coroutine_threadsafe(
+            update_obj.message.reply_text("Fetching completed! Final funkabhosda.json and educators.json uploaded."), loop).result()
+    else:
+        print("\nFetching stopped by user.")
+        save_educators_to_mongodb(json_data["educators"])
+        asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
+        asyncio.run_coroutine_threadsafe(
+            update_obj.message.reply_text("Fetching stopped. Partial funkabhosda.json and educators.json uploaded."), loop).result()
     
-    fetching = True
-    fetch_mode = "educators"
-    update_context = context
-    update_obj = update
-    loop = asyncio.get_running_loop()
-    uploaded_file_ids = []
-    await update.message.reply_text("Starting educator fetch... 😁")
-    
-    with json_lock:
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump({"educators": []}, f)
-    
-    asyncio.create_task(progress_updater())
-    
-    thread = Thread(target=fetch_educators_in_background)
-    thread.start()
+    fetching = False
+    fetching_educators = False
+    progress_message = None
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /stop command."""
-    global fetching, progress_message, uploaded_file_ids
+    global fetching, fetching_educators, progress_message
     if not fetching:
         await update.message.reply_text("No fetching process is running!")
         return
     
     fetching = False
-    uploaded_file_ids = []
+    fetching_educators = False
     progress_message = None
     await update.message.reply_text("Stopping fetching process...")
 
 async def main():
     """Start the Telegram bot."""
-    bot_token = os.getenv("BOT_TOKEN", "7862470692:AAH_mtJsMyew7sKEpV77sG10Yh9uaOar83c")
+    bot_token = '7213717609:AAG4gF6dRvqxPcg-WaovRW2Eu1d5jxT566o'
     application = Application.builder().token(bot_token).build()
     
     application.add_handler(CommandHandler("now", now_command))
-    application.add_handler(CommandHandler("educators", educators_command))
     application.add_handler(CommandHandler("stop", stop_command))
+    application.add_handler(CommandHandler("add", add_command))
+    application.add_handler(CommandHandler("educators", educators_command))
     
     print("Bot is starting...")
     await application.initialize()
