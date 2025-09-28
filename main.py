@@ -375,7 +375,7 @@ async def upload_json():
 async def periodic_educators_upload():
     """Fetch educators from MongoDB and upload to Telegram every 20 minutes."""
     global update_context, update_obj, loop
-    while fetching and fetching_educators:  # Only run while /educators is active
+    while fetching and fetching_educators:
         try:
             print("Starting periodic educators upload...")
             educators = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
@@ -410,7 +410,7 @@ async def periodic_educators_upload():
         await asyncio.sleep(20 * 60)
 
 async def progress_updater():
-    """Update progress bar every 60 seconds and upload JSON every 2 minutes."""
+    """Update progress bar every 60 seconds, upload JSON every 2 minutes only for /now."""
     global last_json_data, last_educators_json_data, last_educator_count, last_course_count, last_batch_count
     last_upload_time = time.time()
     
@@ -435,10 +435,12 @@ async def progress_updater():
                     last_educator_count, last_course_count, last_batch_count = educator_count, course_count, batch_count
                     await send_progress_bar()
             
-            current_time = time.time()
-            if current_time - last_upload_time >= 1200:
-                await upload_json()
-                last_upload_time = current_time
+            # Only upload JSON every 2 minutes for /now, not /educators
+            if not fetching_educators:
+                current_time = time.time()
+                if current_time - last_upload_time >= 120:
+                    await upload_json()
+                    last_upload_time = current_time
                 
         except Exception as e:
             print(f"Error in progress updater: {e}")
@@ -583,6 +585,12 @@ async def educators_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loop = asyncio.get_running_loop()
     await update.message.reply_text("Starting educators fetch... 📚")
 
+    # Clear in-memory data to start fresh
+    global last_educators_json_data, last_educator_count
+    last_educators_json_data = []
+    last_educator_count = 0
+
+    # Start periodic upload and progress updater
     asyncio.create_task(periodic_educators_upload())
     asyncio.create_task(progress_updater())
     thread = Thread(target=fetch_educators_in_background)
