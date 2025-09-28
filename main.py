@@ -3,12 +3,10 @@ from pymongo import MongoClient
 import requests
 import json
 import os
-import time
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-from threading import Thread
 import asyncio
 import re
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # MongoDB setup
 MONGO_URI = "mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"  # Replace with your MongoDB Atlas URI
@@ -21,7 +19,6 @@ educators_collection.create_index("uid", unique=True)
 fetching = False
 update_context = None
 update_obj = None
-loop = None
 progress_message = None
 last_educator_count = 0
 
@@ -93,7 +90,7 @@ def save_educators_to_mongodb(educators):
             except pymongo.errors.PyMongoError as e:
                 print(f"Error saving educator to MongoDB: {e}")
 
-def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000):
+async def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000):
     """Fetch educators from API, starting from offset 0."""
     base_url = "https://unacademy.com/api/v1/uplus/subscription/goal_educators/"
     educators = []
@@ -104,7 +101,7 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000):
         url = f"{base_url}?goal_uid={goal_uid}&limit={limit}&offset={offset}"
         try:
             print(f"Fetching educators from API at offset {offset}...")
-            response = requests.get(url, timeout=10)
+            response = await asyncio.get_event_loop().run_in_executor(None, lambda: requests.get(url, timeout=10))
             response.raise_for_status()
             data = response.json()
 
@@ -141,7 +138,7 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000):
     print(f"Fetched {len(educators)} new educators.")
     return educators
 
-def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000):
+async def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000):
     """Fetch batches for a username and return new educators."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/batch?username={username}&limit={limit}"
     new_educators = []
@@ -150,7 +147,7 @@ def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000):
     while offset <= max_offset:
         url = f"{base_url}&offset={offset}"
         try:
-            response = requests.get(url, timeout=10)
+            response = await asyncio.get_event_loop().run_in_executor(None, lambda: requests.get(url, timeout=10))
             response.raise_for_status()
             data = response.json()
 
@@ -230,7 +227,7 @@ async def upload_json():
 
 async def periodic_educators_upload():
     """Upload educators.json every 20 minutes."""
-    global update_context, update_obj, loop
+    global update_context, update_obj
     await asyncio.sleep(20 * 60)
     while fetching:
         try:
@@ -257,32 +254,14 @@ async def progress_updater():
             print(f"Error in progress updater: {e}")
         await asyncio.sleep(60)
 
-async def educators_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle the /educators command."""
-    global fetching, update_context, update_obj, loop, last_educator_count
-    if fetching:
-        await update.message.reply_text("Fetching is already in progress! Use /stop to stop it.")
-        return
-
-    fetching = True
-    update_context = context
-    update_obj = update
-    loop = asyncio.get_running_loop()
-    last_educator_count = 0
-    await update.message.reply_text("Starting educators fetch from scratch... 📚")
-
-    asyncio.create_task(periodic_educators_upload())
-    asyncio.create_task(progress_updater())
-    Thread(target=fetch_educators_in_background).start()
-
-def fetch_educators_in_background():
-    """Run educators fetching in a background thread."""
-    global fetching, progress_message, loop
+async def fetch_educators_in_background():
+    """Run educators fetching as an asyncio task."""
+    global fetching, progress_message
     known_educator_uids = set()
 
     while fetching:
         print("Starting new fetch cycle from offset 0...")
-        educators = fetch_educators()
+        educators = await fetch_educators()
         if educators:
             save_educators_to_mongodb(educators)
             educator_queue = [(e["username"], e["uid"]) for e in educators]
@@ -301,7 +280,7 @@ def fetch_educators_in_background():
                     continue
                 processed_educators.add(username)
                 print(f"Fetching batches for {username}...")
-                new_educators = fetch_batches(username, known_educator_uids)
+                new_educators = await fetch_batches(username, known_educator_uids)
                 if new_educators:
                     save_educators_to_mongodb(new_educators)
                     educator_queue.extend((e["username"], e["uid"]) for e in new_educators)
@@ -312,15 +291,31 @@ def fetch_educators_in_background():
 
         if fetching:
             print("Completed fetch cycle. Starting next cycle after 10 seconds...")
-            time.sleep(10)
+            await asyncio.sleep(10)
         else:
             print("Fetching stopped by user.")
-            asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
-            asyncio.run_coroutine_threadsafe(
-                update_obj.message.reply_text("Educators fetch stopped. Final educators.json uploaded."), loop).result()
+            await upload_json()
+            await update_obj.message.reply_text("Educators fetch stopped. Final educators.json uploaded.")
 
     fetching = False
     progress_message = None
+
+async def educators_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the /educators command."""
+    global fetching, update_context, update_obj, last_educator_count
+    if fetching:
+        await update.message.reply_text("Fetching is already in progress! Use /stop to stop it.")
+        return
+
+    fetching = True
+    update_context = context
+    update_obj = update
+    last_educator_count = 0
+    await update.message.reply_text("Starting educators fetch from scratch... 📚")
+
+    asyncio.create_task(periodic_educators_upload())
+    asyncio.create_task(progress_updater())
+    asyncio.create_task(fetch_educators_in_background())
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /stop command."""
