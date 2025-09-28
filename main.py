@@ -124,16 +124,16 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, educators_list=
             data = response.json()
 
             if isinstance(data, dict) and data.get("error_code") == "E001":
-                print(f"Error E001 encountered at offset {offset}. Stopping educator fetch.")
+                print(f"Error E001 encountered at offset {offset}. Stopping educator fetch for this cycle.")
                 break
 
             results = data.get("results")
             if results is None or not isinstance(results, list):
-                print(f"No valid educator results found at offset {offset}. Stopping educator fetch.")
+                print(f"No valid educator results found at offset {offset}. Stopping educator fetch for this cycle.")
                 break
 
             if not results:
-                print(f"No more educators found at offset {offset}. Stopping educator fetch.")
+                print(f"No more educators found at offset {offset}. Stopping educator fetch for this cycle.")
                 break
 
             for i, educator in enumerate(results, start=offset + 1):
@@ -160,7 +160,7 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, educators_list=
             print(f"Request failed for educators at offset {offset}: {e}")
             break
 
-    print(f"Fetched {len(educators)} new educators.")
+    print(f"Fetched {len(educators)} new educators in this cycle.")
     return educators, educators_list
 
 def fetch_educator_by_username(username):
@@ -385,7 +385,7 @@ async def upload_json():
 async def periodic_educators_upload():
     """Fetch educators from MongoDB and upload to Telegram every 20 minutes."""
     global update_context, update_obj, loop
-    # Wait 20 minutes before the first upload to allow fetching
+    # Wait 20 minutes before the first upload
     await asyncio.sleep(20 * 60)
     while fetching and fetching_educators:
         try:
@@ -398,7 +398,7 @@ async def periodic_educators_upload():
             json_files = split_json_file("educators.json", max_size_mb=50)
             for i, json_file in enumerate(json_files, 1):
                 with open(json_file, "rb") as f:
-                    caption = f"Periodic educators.json (Part {i} of {len(json_files)})" if len(json_files) > 1 else "Periodic educators.json"
+                    caption = f"Updated educators.json (Part {i} of {len(json_files)})" if len(json_files) > 1 else "Updated educators.json"
                     await update_context.bot.send_document(
                         chat_id=update_obj.effective_chat.id,
                         document=f,
@@ -612,56 +612,53 @@ def fetch_educators_in_background():
     """Run the educators fetching process in a background thread."""
     global fetching, fetching_educators, last_educators_json_data, last_educator_count, progress_message
     
-    educators_list = []
-    known_educator_uids = set(educators_collection.distinct("uid"))
+    while fetching and fetching_educators:
+        educators_list = []
+        print("Starting new fetch cycle from API...")
+        educators, educators_list = fetch_educators(educators_list=educators_list)
+        if educators:
+            save_educators_to_mongodb(educators_list)
+        else:
+            print("No new educators fetched in this cycle.")
 
-    print("Fetching initial educators from API...")
-    educators, educators_list = fetch_educators(educators_list=educators_list)
-    if educators:
-        save_educators_to_mongodb(educators_list)
-    else:
-        print("No new educators fetched in initial request.")
+        educator_queue = [(username, uid) for username, uid in educators]
+        processed_educators = set()
+        known_educator_uids = set(educators_collection.distinct("uid"))
 
-    educator_queue = [(username, uid) for username, uid in educators]
-    processed_educators = set()
+        while educator_queue and fetching:
+            current_educators = educator_queue
+            educator_queue = []
+            print(f"\nProcessing {len(current_educators)} educators for batches...")
 
-    while educator_queue and fetching:
-        current_educators = educator_queue
-        educator_queue = []
-        print(f"\nProcessing {len(current_educators)} educators for batches...")
+            for username, uid in current_educators:
+                if not fetching:
+                    break
+                if username in processed_educators:
+                    continue
+                processed_educators.add(username)
 
-        for username, uid in current_educators:
-            if not fetching:
-                break
-            if username in processed_educators:
-                continue
-            processed_educators.add(username)
+                print(f"\nFetching batches for {username} to find new educators...")
+                new_educators, educators_list = fetch_batches(username, known_educator_uids, educators_list=educators_list)
+                if new_educators:
+                    save_educators_to_mongodb(educators_list)
 
-            print(f"\nFetching batches for {username} to find new educators...")
-            new_educators, educators_list = fetch_batches(username, known_educator_uids, educators_list=educators_list)
-            if new_educators:
-                save_educators_to_mongodb(educators_list)
+                if new_educators:
+                    print(f"\nNew educators found in batches for {username}:")
+                    for educator in new_educators:
+                        print(f"{educator['first_name']} {educator['last_name']} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
+                        educator_queue.append((educator["username"], educator["uid"]))
+                else:
+                    print(f"\nNo new educators found in batches for {username}.")
 
-            if new_educators:
-                print(f"\nNew educators found in batches for {username}:")
-                for educator in new_educators:
-                    print(f"{educator['first_name']} {educator['last_name']} : {educator['username']} : {educator['uid']} : {educator['avatar']}")
-                    educator_queue.append((educator["username"], educator["uid"]))
-            else:
-                print(f"\nNo new educators found in batches for {username}.")
-
-    if fetching:
-        print("\nAll educators processed. Final data saved to MongoDB.")
-        last_educators_json_data = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
-        asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
-        asyncio.run_coroutine_threadsafe(
-            update_obj.message.reply_text("Educators fetch completed! Final educators.json uploaded."), loop).result()
-    else:
-        print("\nFetching stopped by user.")
-        last_educators_json_data = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
-        asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
-        asyncio.run_coroutine_threadsafe(
-            update_obj.message.reply_text("Educators fetch stopped. Partial educators.json uploaded."), loop).result()
+        if fetching:
+            print("\nCompleted one fetch cycle. Starting next cycle after 10 seconds...")
+            time.sleep(10)  # Brief pause before next fetch cycle
+        else:
+            print("\nFetching stopped by user.")
+            last_educators_json_data = list(educators_collection.find({}, {"_id": 0, "username": 1, "uid": 1}))
+            asyncio.run_coroutine_threadsafe(upload_json(), loop).result()
+            asyncio.run_coroutine_threadsafe(
+                update_obj.message.reply_text("Educators fetch stopped. Final educators.json uploaded."), loop).result()
     
     fetching = False
     fetching_educators = False
