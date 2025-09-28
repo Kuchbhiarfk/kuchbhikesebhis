@@ -13,7 +13,7 @@ from pymongo import MongoClient
 import io
 
 # MongoDB connection
-client = MongoClient(os.environ['MONGODB_URI', 'mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0'])
+client = MongoClient(os.environ.get('MONGODB_URI', 'mongodb+srv://elvishyadavop:ClA5yIHTbCutEnVP@cluster0.u83zlfx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0'))
 db = client['unacademy_db']
 collection = db['educators']
 
