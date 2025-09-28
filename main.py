@@ -30,9 +30,8 @@ update_obj = None
 loop = None
 
 def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, known_educator_uids=None):
-    """Fetch educators and add new ones to MongoDB."""
+    """Fetch educators and add/update in MongoDB."""
     base_url = "https://unacademy.com/api/v1/uplus/subscription/goal_educators/"
-    educators = []  # List of (username, uid) for queue
     known_educator_uids = known_educator_uids if known_educator_uids is not None else set()
     offset = 0
 
@@ -55,9 +54,7 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, known_educator_
             for i, educator in enumerate(results, start=offset + 1):
                 username = normalize_username(educator.get("username", ""))
                 uid = educator.get("uid", "")
-                if username and uid not in known_educator_uids:
-                    known_educator_uids.add(uid)
-                    print(f"{i} {educator.get('first_name')} {educator.get('last_name')} : {username} : {uid} : {educator.get('avatar')}")
+                if username and uid:
                     educator_data = {
                         "first_name": educator.get("first_name", "N/A"),
                         "last_name": educator.get("last_name", "N/A"),
@@ -66,14 +63,16 @@ def fetch_educators(goal_uid="TMUVD", limit=50, max_offset=1000, known_educator_
                         "avatar": educator.get("avatar", "N/A")
                     }
                     collection.update_one({'uid': uid}, {'$set': educator_data}, upsert=True)
-                    educators.append((username, uid))
+                    if uid not in known_educator_uids:
+                        known_educator_uids.add(uid)
+                        print(f"New {i} {educator.get('first_name')} {educator.get('last_name')} : {username} : {uid} : {educator.get('avatar')}")
+                    else:
+                        print(f"Known {i} {educator.get('first_name')} {educator.get('last_name')} : {username} : {uid} : {educator.get('avatar')}")
 
             offset += limit
         except requests.RequestException as e:
             print(f"Request failed for educators: {e}")
             break
-
-    return educators
 
 def fetch_educator_by_username(username):
     """Fetch educator details by username from course API."""
@@ -156,7 +155,7 @@ def fetch_courses(username, limit=50, max_offset=1000, json_data=None):
             break
 
 def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json_data=None):
-    """Fetch batches for a given username, add new educators to DB, and add batches to json_data if provided."""
+    """Fetch batches for a given username, add/update educators to DB, and add batches to json_data if provided."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/batch?username={username}&limit={limit}"
     seen_batch_uids = set()
     new_educators = []
@@ -212,8 +211,7 @@ def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json
                     for author in authors:
                         author_uid = author.get("uid")
                         author_username = normalize_username(author.get("username", ""))
-                        if author_uid and author_uid not in known_educator_uids:
-                            known_educator_uids.add(author_uid)
+                        if author_uid and author_username:
                             educator_data = {
                                 "first_name": author.get("first_name", "N/A"),
                                 "last_name": author.get("last_name", "N/A"),
@@ -222,7 +220,9 @@ def fetch_batches(username, known_educator_uids, limit=50, max_offset=1000, json
                                 "avatar": author.get("avatar", "N/A")
                             }
                             collection.update_one({'uid': author_uid}, {'$set': educator_data}, upsert=True)
-                            new_educators.append((author_username, author_uid))
+                            if author_uid not in known_educator_uids:
+                                known_educator_uids.add(author_uid)
+                                new_educators.append((author_username, author_uid))
 
             offset += limit
         except requests.RequestException as e:
@@ -471,9 +471,11 @@ def fetch_educators_in_background():
     known_educator_uids = set(doc['uid'] for doc in collection.find({}, {'uid': 1, '_id': 0}))
 
     print("Fetching initial educators...")
-    educators = fetch_educators(known_educator_uids=known_educator_uids)
+    fetch_educators(known_educator_uids=known_educator_uids)
 
-    educator_queue = educators
+    # Load all educators for processing
+    all_educators = list(collection.find({}, {'username': 1, 'uid': 1, '_id': 0}))
+    educator_queue = [(doc['username'], doc['uid']) for doc in all_educators if 'username' in doc and 'uid' in doc]
     processed_educators = set()
 
     while educator_queue and fetching:
@@ -543,9 +545,11 @@ def fetch_data_in_background():
     known_educator_uids = set(doc['uid'] for doc in collection.find({}, {'uid': 1, '_id': 0}))
 
     print("Fetching initial educators...")
-    educators = fetch_educators(known_educator_uids=known_educator_uids)
+    fetch_educators(known_educator_uids=known_educator_uids)
 
-    educator_queue = educators
+    # Load all educators for processing
+    all_educators = list(collection.find({}, {'username': 1, 'uid': 1, '_id': 0}))
+    educator_queue = [(doc['username'], doc['uid']) for doc in all_educators if 'username' in doc and 'uid' in doc]
     processed_educators = set()
 
     while educator_queue and fetching:
