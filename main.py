@@ -15,7 +15,7 @@ import pymongo
 SETTED_GROUP_ID = -1003133358948  # Replace this with your supergroup ID where topics are enabled
 
 # MongoDB connection
-client = pymongo.MongoClient("mongodb+srv://elvishyadavopm_db_user:v3BS9qzvkvy7zZNU@cluster0.rstegtw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+client = pymongo.MongoClient("mongodb+srv://elvishyadav_opm:naman1811421@cluster0.uxuplor.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 db = client["unacademy_db"]
 educators_col = db["educators"]
 courses_col = db["courses"]
