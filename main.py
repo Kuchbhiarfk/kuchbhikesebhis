@@ -561,11 +561,11 @@ async def send_progress_bar_add(total_courses, total_batches, uploaded_courses, 
             progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown")
 
 async def progress_updater_add(total_courses, total_batches, uploaded_courses, uploaded_batches):
-    """Update progress bar for /add every 10 seconds."""
+    """Update progress bar for /add every 2 minutes."""
     global progress_message
     while uploaded_courses < total_courses or uploaded_batches < total_batches:
         await send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches)
-        await asyncio.sleep(10)
+        await asyncio.sleep(120)  # Update every 2 minutes
 
 async def schedule_checker():
     """Check and update current batches and courses every 2 hours."""
@@ -583,8 +583,7 @@ async def schedule_checker():
                             end_time = dateutil.parser.isoparse(end_time_str)
                             if end_time <= current_time:
                                 # Mark as completed
-                                caption = item.get("caption", "")
-                                new_caption = caption + "\nNo More Check Batch/Course Completed"
+                                new_caption = f"{item_type.capitalize()} completed. No more checks."
                                 try:
                                     await bot.edit_message_caption(
                                         chat_id=SETTED_GROUP_ID,
@@ -593,7 +592,7 @@ async def schedule_checker():
                                     )
                                     educators_col.update_one(
                                         {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
-                                        {"$set": {f"{items_key}.$.is_completed": True, f"{items_key}.$.caption": new_caption}}
+                                        {"$set": {f"{items_key}.$.is_completed": True}}
                                     )
                                     print(f"Marked {item_type} {item['uid']} as completed")
                                 except Exception as e:
@@ -608,11 +607,11 @@ async def schedule_checker():
                                 )
                                 results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
                                 if results:
-                                    item["schedule"] = results
-                                    item["last_checked_at"] = last_checked
-                                    item["caption"] = caption
                                     filename = f"temp_{item_type}_{item['uid']}.json"
-                                    save_to_json(filename, item)
+                                    item_data = item.copy()
+                                    item_data["schedule"] = results
+                                    item_data["last_checked_at"] = last_checked
+                                    save_to_json(filename, item_data)
                                     try:
                                         await bot.delete_message(chat_id=SETTED_GROUP_ID, message_id=item["msg_id"])
                                     except Exception as e:
@@ -630,9 +629,7 @@ async def schedule_checker():
                                             {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
                                             {"$set": {
                                                 f"{items_key}.$.msg_id": new_msg_id,
-                                                f"{items_key}.$.last_checked_at": last_checked,
-                                                f"{items_key}.$.caption": caption,
-                                                f"{items_key}.$.schedule": results
+                                                f"{items_key}.$.last_checked_at": last_checked
                                             }}
                                         )
                                         print(f"Updated {item_type} {item['uid']}")
@@ -684,11 +681,12 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Error creating topic in group: {e}. Ensure the group is a supergroup with topics enabled and bot has permissions.")
             return ConversationHandler.END
 
-        # Store educator in DB
+        # Store educator in DB with schema-compliant structure
         educators_col.insert_one({
+            "_id": pymongo.ObjectId(),
+            "username": username,
             "first_name": educator["first_name"],
             "last_name": educator["last_name"],
-            "username": username,
             "uid": educator["uid"],
             "avatar": educator["avatar"],
             "subtopic_msg_id": thread_id,
@@ -773,73 +771,6 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if os.path.exists(educator_filename):
             os.remove(educator_filename)
 
-    # Function to upload item
-    async def upload_item(item, item_type, is_current, caption_template):
-        nonlocal uploaded_courses, uploaded_batches
-        item_uid = item["uid"]
-        if (item_type == "course" and item_uid in existing_course_uids) or (item_type == "batch" and item_uid in existing_batch_uids):
-            print(f"Skipping already uploaded {item_type} {item_uid}")
-            return
-
-        item_data = item.copy()
-        if is_current:
-            item_data["last_checked_at"] = last_checked
-        item_data["is_completed"] = not is_current
-
-        # Fetch schedule
-        schedule_url = (
-            f"https://api.unacademy.com/api/v1/batch/{item_uid}/schedule/?limit=100000&offset=None&past=True&rank=100000&timezone_difference=330"
-            if item_type == "batch"
-            else f"https://unacademy.com/api/v3/collection/{item_uid}/items?limit=10000"
-        )
-        results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
-        item_data["schedule"] = results
-        item_data["caption"] = caption
-
-        filename = f"{username}_{'current' if is_current else 'completed'}_{item_type}_{item_uid}.json"
-        save_to_json(filename, item_data)
-
-        item_name = item.get("name", "N/A")
-        item_starts_at = item.get("starts_at", "N/A")
-        item_ends_at = item.get("ends_at" if item_type == "course" else "completed_at", "N/A")
-        teachers = (
-            f"{item.get('author', {}).get('first_name', '')} {item.get('author', {}).get('last_name', '')}".strip()
-            if item_type == "course"
-            else ", ".join([f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() for t in item.get("authors", [])])
-        )
-
-        caption = caption_template.format(
-            name=item_name,
-            teachers=teachers,
-            starts_at=item_starts_at,
-            ends_at=item_ends_at,
-            last_checked=last_checked
-        )
-
-        try:
-            with open(filename, "rb") as f:
-                msg = await context.bot.send_document(
-                    chat_id=SETTED_GROUP_ID,
-                    message_thread_id=thread_id,
-                    document=f,
-                    caption=caption
-                )
-            msg_id = msg.message_id
-            item_data["msg_id"] = msg_id
-            os.remove(filename)
-            print(f"Deleted {filename} after upload")
-            if item_type == "course":
-                new_courses.append(item_data)
-                uploaded_courses += 1
-            else:
-                new_batches.append(item_data)
-                uploaded_batches += 1
-        except Exception as e:
-            await update.message.reply_text(f"Error uploading {item_type} {item_uid}: {e}")
-            if os.path.exists(filename):
-                os.remove(filename)
-        await asyncio.sleep(1)
-
     # Caption templates
     course_caption_template = (
         "Course Name :- {name}\n"
@@ -890,6 +821,82 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['last_checked'] = last_checked
     await update.message.reply_text("What do you want to fetch?\n1. Batch\n2. Course\nReply with '1' or '2', or type 'cancel' to exit.")
     return SELECT_TYPE
+
+async def upload_item(item, item_type, is_current, caption_template):
+    nonlocal uploaded_courses, uploaded_batches, new_courses, new_batches, username, last_checked, thread_id, update
+    item_uid = item["uid"]
+    if (item_type == "course" and item_uid in existing_course_uids) or (item_type == "batch" and item_uid in existing_batch_uids):
+        print(f"Skipping already uploaded {item_type} {item_uid}")
+        return
+
+    # Prepare item data for MongoDB (strictly follow schema, exclude caption)
+    item_data = {
+        "uid": item.get("uid", "N/A"),
+        "name": item.get("name", "N/A"),
+        "msg_id": None,  # Will be set after upload
+        "last_checked_at": last_checked,
+        "is_completed": not is_current
+    }
+
+    # Fetch schedule for JSON file (not stored in MongoDB)
+    schedule_url = (
+        f"https://api.unacademy.com/api/v1/batch/{item_uid}/schedule/?limit=100000&offset=None&past=True&rank=100000&timezone_difference=330"
+        if item_type == "batch"
+        else f"https://unacademy.com/api/v3/collection/{item_uid}/items?limit=10000"
+    )
+    results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
+
+    # Prepare JSON data for file (includes schedule and caption)
+    json_item_data = item.copy()
+    json_item_data["schedule"] = results
+    json_item_data["last_checked_at"] = last_checked
+    json_item_data["is_completed"] = not is_current
+    json_item_data["caption"] = caption
+
+    filename = f"{username}_{'current' if is_current else 'completed'}_{item_type}_{item_uid}.json"
+    save_to_json(filename, json_item_data)
+
+    item_name = item.get("name", "N/A")
+    item_starts_at = item.get("starts_at", "N/A")
+    item_ends_at = item.get("ends_at" if item_type == "course" else "completed_at", "N/A")
+    teachers = (
+        f"{item.get('author', {}).get('first_name', '')} {item.get('author', {}).get('last_name', '')}".strip()
+        if item_type == "course"
+        else ", ".join([f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() for t in item.get("authors", [])])
+    )
+
+    caption = caption_template.format(
+        name=item_name,
+        teachers=teachers,
+        starts_at=item_starts_at,
+        ends_at=item_ends_at,
+        last_checked=last_checked
+    )
+
+    try:
+        with open(filename, "rb") as f:
+            msg = await context.bot.send_document(
+                chat_id=SETTED_GROUP_ID,
+                message_thread_id=thread_id,
+                document=f,
+                caption=caption
+            )
+        msg_id = msg.message_id
+        item_data["msg_id"] = msg_id
+        os.remove(filename)
+        print(f"Deleted {filename} after upload")
+        if item_type == "course":
+            new_courses.append(item_data)
+            uploaded_courses += 1
+        else:
+            new_batches.append(item_data)
+            uploaded_batches += 1
+        await asyncio.sleep(30)  # 30-second delay per JSON file upload
+    except Exception as e:
+        await update.message.reply_text(f"Error uploading {item_type} {item_uid}: {e}")
+        if os.path.exists(filename):
+            os.remove(filename)
+    await asyncio.sleep(0.1)  # Small delay to prevent overwhelming the event loop
 
 async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the selection of batch or course."""
