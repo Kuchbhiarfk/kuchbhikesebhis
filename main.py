@@ -331,7 +331,7 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                 await asyncio.sleep(2 ** attempt)
 
         print(f"Failed to fetch schedule for {item_type} after 20 attempts.")
-        return [], None
+        return None, None
 
 def fetch_unacademy_collection(title, author, live_at, video_url, slides_pdf, is_offline):
     """Format collection item details."""
@@ -636,9 +636,16 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_courses = current_courses + completed_courses
     all_batches = current_batches + completed_batches
 
-    # Save all courses to MongoDB first
+    # Get existing
+    existing_doc = educators_col.find_one({"username": username})
+    existing_course_uids = {c["uid"] for c in existing_doc.get("courses", [])}
+    existing_batch_uids = {b["uid"] for b in existing_doc.get("batches", [])}
+
+    # Save new courses to MongoDB
     course_datas = []
     for course in all_courses:
+        if course["uid"] in existing_course_uids:
+            continue
         is_current = course in current_courses
         course_data = {
             "uid": course["uid"],
@@ -659,9 +666,11 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if course_datas:
         educators_col.update_one({"username": username}, {"$push": {"courses": {"$each": course_datas}}})
 
-    # Save all batches to MongoDB first
+    # Save new batches to MongoDB
     batch_datas = []
     for batch in all_batches:
+        if batch["uid"] in existing_batch_uids:
+            continue
         is_current = batch in current_batches
         batch_data = {
             "uid": batch["uid"],
@@ -684,7 +693,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if batch_datas:
         educators_col.update_one({"username": username}, {"$push": {"batches": {"$each": batch_datas}}})
 
-    # Get existing after saving
+    # Get updated doc
     existing_doc = educators_col.find_one({"username": username})
     total_courses = len(existing_doc.get("courses", []))
     total_batches = len(existing_doc.get("batches", []))
@@ -767,23 +776,31 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         schedule_filename = f"{username}_{item_type}_{item_uid}_schedule.json"
         save_to_json(schedule_filename, results)
-        try:
-            with open(schedule_filename, "rb") as f:
-                msg = await context.bot.send_document(
-                    chat_id=SETTED_GROUP_ID,
-                    message_thread_id=thread_id,
-                    document=f,
-                    caption=caption
-                )
-            msg_id = msg.message_id
-            os.remove(schedule_filename)
-            print(f"Deleted {schedule_filename} after upload")
-            await asyncio.sleep(30)  # 30-second delay for schedule JSON
-        except Exception as e:
-            await update.message.reply_text(f"Error uploading {item_type} schedule {item_uid}: {e}")
+        uploaded = False
+        retries = 0
+        while not uploaded and retries < 5:
+            try:
+                with open(schedule_filename, "rb") as f:
+                    msg = await context.bot.send_document(
+                        chat_id=SETTED_GROUP_ID,
+                        message_thread_id=thread_id,
+                        document=f,
+                        caption=caption
+                    )
+                msg_id = msg.message_id
+                uploaded = True
+                os.remove(schedule_filename)
+                print(f"Deleted {schedule_filename} after upload")
+                await asyncio.sleep(30)  # 30-second delay for schedule JSON
+            except Exception as e:
+                print(f"Error uploading {item_type} schedule {item_uid} attempt {retries + 1}: {e}")
+                retries += 1
+                await asyncio.sleep(60)  # Wait 1 min before retry
+
+        if not uploaded:
             if os.path.exists(schedule_filename):
                 os.remove(schedule_filename)
-                print(f"Deleted {schedule_filename} due to upload error")
+                print(f"Deleted {schedule_filename} due to upload failure")
             return
 
         # Update MongoDB
@@ -869,32 +886,42 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     schedule_filename = f"{username}_{item_type}_{item_id}_schedule.json"
     save_to_json(schedule_filename, results)
-    try:
-        await context.bot.send_message(
-            chat_id=group_id,
-            message_thread_id=thread_id,
-            text=caption
-        )
-        with open(schedule_filename, "rb") as f:
-            msg = await context.bot.send_document(
+    uploaded = False
+    retries = 0
+    while not uploaded and retries < 5:
+        try:
+            await context.bot.send_message(
                 chat_id=group_id,
                 message_thread_id=thread_id,
-                document=f,
-                caption=caption
+                text=caption
             )
-        new_msg_id = msg.message_id
-        educators_col.update_one(
-            {"username": username, f"{item_type + 'es'}.uid": item_id},
-            {"$set": {f"{item_type + 'es'}.$.msg_id": new_msg_id, f"{item_type + 'es'}.$.last_checked_at": last_checked, f"{item_type + 'es'}.$.caption": caption}}
-        )
-        os.remove(schedule_filename)
-        print(f"Deleted {schedule_filename} after upload")
-        await asyncio.sleep(30)  # 30-second delay for schedule JSON
-    except Exception as e:
-        await update.message.reply_text(f"Error uploading schedule JSON to group topic: {e}")
+            with open(schedule_filename, "rb") as f:
+                msg = await context.bot.send_document(
+                    chat_id=group_id,
+                    message_thread_id=thread_id,
+                    document=f,
+                    caption=caption
+                )
+            new_msg_id = msg.message_id
+            educators_col.update_one(
+                {"username": username, f"{item_type + 'es'}.uid": item_id},
+                {"$set": {f"{item_type + 'es'}.$.msg_id": new_msg_id, f"{item_type + 'es'}.$.last_checked_at": last_checked, f"{item_type + 'es'}.$.caption": caption}}
+            )
+            uploaded = True
+            os.remove(schedule_filename)
+            print(f"Deleted {schedule_filename} after upload")
+            await asyncio.sleep(30)  # 30-second delay for schedule JSON
+        except Exception as e:
+            print(f"Error uploading schedule for {item_type} {item_id} attempt {retries + 1}: {e}")
+            retries += 1
+            await asyncio.sleep(60)  # Wait 1 min before retry
+
+    if not uploaded:
         if os.path.exists(schedule_filename):
             os.remove(schedule_filename)
-            print(f"Deleted {schedule_filename} due to upload error")
+            print(f"Deleted {schedule_filename} due to upload failure")
+        await update.message.reply_text(f"Failed to upload schedule for {item_type} ID: {item_id} after retries")
+        return ConversationHandler.END
 
     await update.message.reply_text(f"Schedule uploaded to group topic: {topic_title}")
     await update.message.reply_text(f"Finished fetching details for {item_type} ID: {item_id}")
