@@ -66,7 +66,7 @@ async def fetch_educator_by_username(username):
             print(f"Failed to fetch educator details for {username}: {e}")
             return None
 
-async def fetch_courses(username, limit=50, max_offset=5000):
+async def fetch_courses(username, limit=50, max_offset=10000):
     """Fetch courses for a given username asynchronously."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/course?username={username}&limit={limit}"
     courses = []
@@ -129,7 +129,7 @@ async def fetch_courses(username, limit=50, max_offset=5000):
         print(f"Total courses fetched for {username}: {len(courses)}")
         return courses
 
-async def fetch_batches(username, limit=50, max_offset=5000):
+async def fetch_batches(username, limit=50, max_offset=10000):
     """Fetch batches for a given username asynchronously."""
     base_url = f"https://unacademy.com/api/sheldon/v1/list/batch?username={username}&limit={limit}"
     batches = []
@@ -331,7 +331,7 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                 await asyncio.sleep(2 ** attempt)
 
         print(f"Failed to fetch schedule for {item_type} after 20 attempts.")
-        return None, None
+        return [], None
 
 def fetch_unacademy_collection(title, author, live_at, video_url, slides_pdf, is_offline):
     """Format collection item details."""
@@ -549,7 +549,7 @@ async def schedule_checker():
                                         }}
                                     )
                                     print(f"Updated {item_type} {item['uid']}")
-                                    await asyncio.sleep(30)  # 30-second delay per JSON upload
+                                    await asyncio.sleep(60)  # Increased to 60-second delay per JSON upload to avoid flood
                                 except Exception as e:
                                     print(f"Error uploading updated {item_type} {item['uid']}: {e}")
                                 finally:
@@ -778,7 +778,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_to_json(schedule_filename, results)
         uploaded = False
         retries = 0
-        while not uploaded and retries < 5:
+        while not uploaded and retries < 10:
             try:
                 with open(schedule_filename, "rb") as f:
                     msg = await context.bot.send_document(
@@ -791,7 +791,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uploaded = True
                 os.remove(schedule_filename)
                 print(f"Deleted {schedule_filename} after upload")
-                await asyncio.sleep(30)  # 30-second delay for schedule JSON
+                await asyncio.sleep(60)  # Increased to 60-second delay for schedule JSON
             except Exception as e:
                 print(f"Error uploading {item_type} schedule {item_uid} attempt {retries + 1}: {e}")
                 retries += 1
@@ -813,11 +813,19 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }}
         )
 
-    # Update courses and batches
+    # Update courses and batches with try except to continue on error
     for course in all_courses:
-        await update_item(course, "course")
+        try:
+            await update_item(course, "course")
+            await asyncio.sleep(1)  # Small sleep to avoid rate limits
+        except Exception as e:
+            print(f"Error processing course {course['uid']}: {e}")
     for batch in all_batches:
-        await update_item(batch, "batch")
+        try:
+            await update_item(batch, "batch")
+            await asyncio.sleep(1)  # Small sleep to avoid rate limits
+        except Exception as e:
+            print(f"Error processing batch {batch['uid']}: {e}")
 
     # Final progress bar update
     await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches())
@@ -888,7 +896,7 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_to_json(schedule_filename, results)
     uploaded = False
     retries = 0
-    while not uploaded and retries < 5:
+    while not uploaded and retries < 10:
         try:
             await context.bot.send_message(
                 chat_id=group_id,
@@ -910,7 +918,7 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             uploaded = True
             os.remove(schedule_filename)
             print(f"Deleted {schedule_filename} after upload")
-            await asyncio.sleep(30)  # 30-second delay for schedule JSON
+            await asyncio.sleep(60)  # Increased to 60-second delay for schedule JSON
         except Exception as e:
             print(f"Error uploading schedule for {item_type} {item_id} attempt {retries + 1}: {e}")
             retries += 1
