@@ -73,6 +73,8 @@ async def fetch_courses(username, limit=50, max_offset=10000):
     async with aiohttp.ClientSession() as session:
         seen_uids = set()
         offset = 0
+        consecutive_empty = 0  # Track consecutive empty responses
+        max_consecutive_empty = 10  # Stop after 3 consecutive empty responses
 
         while offset <= max_offset:
             url = f"{base_url}&offset={offset}"
@@ -93,11 +95,26 @@ async def fetch_courses(username, limit=50, max_offset=10000):
                     results = data.get("results")
                     if results is None or not isinstance(results, list):
                         print(f"No valid course results for {username} at offset {offset}.")
-                        break
+                        consecutive_empty += 1
+                        if consecutive_empty >= max_consecutive_empty:
+                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
+                            break
+                        offset += limit
+                        await asyncio.sleep(0.1)
+                        continue
 
                     if not results:
-                        print(f"No more courses for {username} at offset {offset}.")
-                        break
+                        print(f"No courses at offset {offset} for {username}.")
+                        consecutive_empty += 1
+                        if consecutive_empty >= max_consecutive_empty:
+                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
+                            break
+                        offset += limit
+                        await asyncio.sleep(0.1)
+                        continue
+
+                    # Reset consecutive empty counter if we got results
+                    consecutive_empty = 0
 
                     for i, course in enumerate(results, start=offset + 1):
                         course_uid = course.get("uid")
@@ -124,7 +141,10 @@ async def fetch_courses(username, limit=50, max_offset=10000):
                     await asyncio.sleep(0.1)
             except aiohttp.ClientError as e:
                 print(f"Failed to fetch courses for {username} at offset {offset}: {e}")
-                break
+                # Don't break on error, try next offset
+                offset += limit
+                await asyncio.sleep(1)
+                continue
 
         print(f"Total courses fetched for {username}: {len(courses)}")
         return courses
@@ -136,6 +156,8 @@ async def fetch_batches(username, limit=50, max_offset=10000):
     async with aiohttp.ClientSession() as session:
         seen_batch_uids = set()
         offset = 0
+        consecutive_empty = 0  # Track consecutive empty responses
+        max_consecutive_empty = 10  # Stop after 3 consecutive empty responses
 
         while offset <= max_offset:
             url = f"{base_url}&offset={offset}"
@@ -156,11 +178,26 @@ async def fetch_batches(username, limit=50, max_offset=10000):
                     results = data.get("results")
                     if results is None or not isinstance(results, list):
                         print(f"No valid batch results for {username} at offset {offset}.")
-                        break
+                        consecutive_empty += 1
+                        if consecutive_empty >= max_consecutive_empty:
+                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
+                            break
+                        offset += limit
+                        await asyncio.sleep(0.1)
+                        continue
 
                     if not results:
-                        print(f"No more batches for {username} at offset {offset}.")
-                        break
+                        print(f"No batches at offset {offset} for {username}.")
+                        consecutive_empty += 1
+                        if consecutive_empty >= max_consecutive_empty:
+                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
+                            break
+                        offset += limit
+                        await asyncio.sleep(0.1)
+                        continue
+
+                    # Reset consecutive empty counter if we got results
+                    consecutive_empty = 0
 
                     for i, batch in enumerate(results, start=offset + 1):
                         batch_uid = batch.get("uid")
@@ -191,7 +228,10 @@ async def fetch_batches(username, limit=50, max_offset=10000):
                     await asyncio.sleep(0.1)
             except aiohttp.ClientError as e:
                 print(f"Failed to fetch batches for {username} at offset {offset}: {e}")
-                break
+                # Don't break on error, try next offset
+                offset += limit
+                await asyncio.sleep(1)
+                continue
 
         print(f"Total batches fetched for {username}: {len(batches)}")
         return batches
@@ -558,7 +598,7 @@ async def schedule_checker():
                                         print(f"Deleted {filename}")
                         except ValueError:
                             print(f"Invalid end time for {item_type} {item['uid']}")
-        await asyncio.sleep(14400)  # 2 hours
+        await asyncio.sleep(7200)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /add command."""
@@ -749,13 +789,16 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(educator_filename)
             print(f"Deleted {educator_filename} due to upload error")
 
-    # Function to update item
+    # Function to update item - FIXED VERSION
     async def update_item(item, item_type):
         item_uid = item["uid"]
+        # FIXED: Proper MongoDB field names
+        items_field = "courses" if item_type == "course" else "batches"
+        
         # Check if already uploaded
-        doc = educators_col.find_one({"username": username, f"{item_type + 'es'}.uid": item_uid})
+        doc = educators_col.find_one({"username": username, f"{items_field}.uid": item_uid})
         if doc:
-            for db_item in doc.get(item_type + "es"):
+            for db_item in doc.get(items_field, []):
                 if db_item["uid"] == item_uid and db_item.get("msg_id") is not None:
                     print(f"Skipping already uploaded {item_type} {item_uid}")
                     return
@@ -803,13 +846,13 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 print(f"Deleted {schedule_filename} due to upload failure")
             return
 
-        # Update MongoDB
+        # Update MongoDB - FIXED
         educators_col.update_one(
-            {"username": username, f"{item_type + 'es'}.uid": item_uid},
+            {"username": username, f"{items_field}.uid": item_uid},
             {"$set": {
-                f"{item_type + 'es'}.$.last_checked_at": last_checked,
-                f"{item_type + 'es'}.$.caption": caption,
-                f"{item_type + 'es'}.$.msg_id": msg_id
+                f"{items_field}.$.last_checked_at": last_checked,
+                f"{items_field}.$.caption": caption,
+                f"{items_field}.$.msg_id": msg_id
             }}
         )
 
@@ -865,11 +908,14 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     thread_id = context.user_data.get('thread_id')
     topic_title = context.user_data.get('topic_title')
 
+    # FIXED: Proper field name
+    items_field = "courses" if item_type == "course" else "batches"
+
     # Check DB for item
-    doc = educators_col.find_one({"username": username, f"{item_type + 'es'}.uid": item_id})
+    doc = educators_col.find_one({"username": username, f"{items_field}.uid": item_id})
     item_data = None
     if doc:
-        for item in doc.get(item_type + "es", []):
+        for item in doc.get(items_field, []):
             if item["uid"] == item_id:
                 item_data = item
                 break
@@ -911,9 +957,14 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=caption
                 )
             new_msg_id = msg.message_id
+            # FIXED: Proper field name
             educators_col.update_one(
-                {"username": username, f"{item_type + 'es'}.uid": item_id},
-                {"$set": {f"{item_type + 'es'}.$.msg_id": new_msg_id, f"{item_type + 'es'}.$.last_checked_at": last_checked, f"{item_type + 'es'}.$.caption": caption}}
+                {"username": username, f"{items_field}.uid": item_id},
+                {"$set": {
+                    f"{items_field}.$.msg_id": new_msg_id,
+                    f"{items_field}.$.last_checked_at": last_checked,
+                    f"{items_field}.$.caption": caption
+                }}
             )
             uploaded = True
             os.remove(schedule_filename)
