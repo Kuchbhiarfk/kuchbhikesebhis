@@ -116,7 +116,8 @@ async def fetch_courses(username, limit=50, max_offset=5000):
                                 "thumbnail": course.get("thumbnail", "N/A"),
                                 "uid": course_uid,
                                 "starts_at": course.get("starts_at", "N/A"),
-                                "ends_at": course.get("ends_at", "N/A")
+                                "ends_at": course.get("ends_at", "N/A"),
+                                "author": course.get("author", {})
                             })
 
                     offset += limit
@@ -182,7 +183,8 @@ async def fetch_batches(username, limit=50, max_offset=5000):
                                 "slug": batch.get("slug", "N/A"),
                                 "syllabus_tag": batch.get("syllabus_tag", "N/A"),
                                 "starts_at": batch.get("starts_at", "N/A"),
-                                "completed_at": batch.get("completed_at", "N/A")
+                                "completed_at": batch.get("completed_at", "N/A"),
+                                "authors": batch.get("authors", [])
                             })
 
                     offset += limit
@@ -548,7 +550,7 @@ async def schedule_checker():
                                     print(f"No results for update of {item_type} {item['uid']}")
                         except ValueError:
                             print(f"Invalid end time for {item_type} {item['uid']}")
-        await asyncio.sleep(7200)  # 2 hours
+        await asyncio.sleep(14400)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /add command."""
@@ -628,10 +630,6 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     existing_course_uids = {course["uid"] for course in existing_doc.get("courses", [])}
     existing_batch_uids = {batch["uid"] for batch in existing_doc.get("batches", [])}
 
-    # Prepare lists for DB update
-    new_courses = []
-    new_batches = []
-
     # Count totals
     total_courses = len(current_courses) + len(completed_courses)
     total_batches = len(current_batches) + len(completed_batches)
@@ -697,37 +695,13 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "is_completed": not is_current
         }
 
-        # Upload item JSON
-        item_filename = f"{username}_{'current' if is_current else 'completed'}_{item_type}_{item_uid}.json"
-        save_to_json(item_filename, item_data)
-        try:
-            with open(item_filename, "rb") as f:
-                msg = await context.bot.send_document(
-                    chat_id=SETTED_GROUP_ID,
-                    message_thread_id=thread_id,
-                    document=f,
-                    caption=caption_template.format(
-                        name=item_data["name"],
-                        teachers=(
-                            f"{item.get('author', {}).get('first_name', '')} {item.get('author', {}).get('last_name', '')}".strip()
-                            if item_type == "course"
-                            else ", ".join([f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() for t in item.get('authors', [])])
-                        ),
-                        starts_at=item_data["starts_at"],
-                        ends_at=item_data["ends_at"],
-                        last_checked=last_checked
-                    )
-                )
-            item_data["msg_id"] = msg.message_id
-            os.remove(item_filename)
-            print(f"Deleted {item_filename} after upload")
-            await asyncio.sleep(30)  # 30-second delay for item JSON
-        except Exception as e:
-            await update.message.reply_text(f"Error uploading {item_type} {item_uid}: {e}")
-            if os.path.exists(item_filename):
-                os.remove(item_filename)
-                print(f"Deleted {item_filename} due to upload error")
-            return
+        # Compute teachers
+        teachers = (
+            f"{item.get('author', {}).get('first_name', '')} {item.get('author', {}).get('last_name', '')}".strip()
+            if item_type == "course"
+            else ", ".join([f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() for t in item.get("authors", [])])
+        )
+        item_data["teachers"] = teachers
 
         # Fetch and upload schedule JSON
         schedule_url = (
@@ -747,7 +721,8 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         document=f,
                         caption=caption
                     )
-                item_data["msg_id"] = msg.message_id  # Update msg_id to schedule message
+                item_data["msg_id"] = msg.message_id
+                item_data["caption"] = caption
                 os.remove(schedule_filename)
                 print(f"Deleted {schedule_filename} after upload")
                 await asyncio.sleep(30)  # 30-second delay for schedule JSON
@@ -757,49 +732,33 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     os.remove(schedule_filename)
                     print(f"Deleted {schedule_filename} due to upload error")
                 return
-
-        if item_type == "course":
-            new_courses.append(item_data)
-            uploaded_courses += 1
         else:
-            new_batches.append(item_data)
-            uploaded_batches += 1
+            return
 
-    # Caption templates
-    course_caption_template = (
-        "Course Name :- {name}\n"
-        "Course Teacher :- {teachers}\n"
-        "Start_at :- {starts_at}\n"
-        "Ends_at :- {ends_at}\n"
-        "Last_checked_at :- {last_checked}"
-    )
-    batch_caption_template = (
-        "Batch Name :- {name}\n"
-        "Batch Teachers :- {teachers}\n"
-        "Start_at :- {starts_at}\n"
-        "Completed_at :- {ends_at}\n"
-        "Last_checked_at :- {last_checked}"
-    )
+        # Add to MongoDB in real-time
+        try:
+            educators_col.update_one(
+                {"username": username},
+                {"$push": {item_type + "es": item_data}}
+            )
+            if item_type == "course":
+                uploaded_courses += 1
+            else:
+                uploaded_batches += 1
+        except Exception as e:
+            print(f"Error adding {item_type} {item_uid} to MongoDB: {e}")
+
+    # Caption templates (not used since caption from fetch_unacademy_schedule)
 
     # Upload courses and batches
     for course in current_courses:
-        await upload_item(course, "course", True, course_caption_template)
+        await upload_item(course, "course", True, None)
     for course in completed_courses:
-        await upload_item(course, "course", False, course_caption_template)
+        await upload_item(course, "course", False, None)
     for batch in current_batches:
-        await upload_item(batch, "batch", True, batch_caption_template)
+        await upload_item(batch, "batch", True, None)
     for batch in completed_batches:
-        await upload_item(batch, "batch", False, batch_caption_template)
-
-    # Update DB with new courses/batches
-    if new_courses or new_batches:
-        update_dict = {}
-        if new_courses:
-            update_dict["$push"] = {"courses": {"$each": new_courses}}
-        if new_batches:
-            update_dict["$push"] = update_dict.get("$push", {})
-            update_dict["$push"]["batches"] = {"$each": new_batches}
-        educators_col.update_one({"username": username}, update_dict)
+        await upload_item(batch, "batch", False, None)
 
     # Final progress bar update
     await send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches)
