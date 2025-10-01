@@ -558,7 +558,7 @@ async def schedule_checker():
                                         print(f"Deleted {filename}")
                         except ValueError:
                             print(f"Invalid end time for {item_type} {item['uid']}")
-        await asyncio.sleep(7200)  # 2 hours
+        await asyncio.sleep(14400)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /add command."""
