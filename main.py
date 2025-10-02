@@ -834,7 +834,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uploaded = True
                 os.remove(schedule_filename)
                 print(f"Deleted {schedule_filename} after upload")
-                await asyncio.sleep(60)  # Increased to 60-second delay for schedule JSON
+                await asyncio.sleep(15)  # Increased to 60-second delay for schedule JSON
             except Exception as e:
                 print(f"Error uploading {item_type} schedule {item_uid} attempt {retries + 1}: {e}")
                 retries += 1
