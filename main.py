@@ -442,14 +442,28 @@ def filter_by_time(courses, batches, current_time, future=True):
 
     return filtered_courses, filtered_batches
 
-async def send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches):
+async def send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches, current_phase):
     """Send or update progress bar for /add command."""
     global progress_message, update_obj
-    progress_text = (
-        f"Progress Update:\n"
-        f"Courses: {uploaded_courses}/{total_courses}\n"
-        f"Batches: {uploaded_batches}/{total_batches}"
-    )
+    
+    if current_phase == "courses":
+        progress_text = (
+            f"Phase 1: Uploading Courses\n"
+            f"Progress: {uploaded_courses}/{total_courses}\n"
+            f"Batches: Pending..."
+        )
+    elif current_phase == "batches":
+        progress_text = (
+            f"Phase 1: Courses Complete ✓\n"
+            f"Phase 2: Uploading Batches\n"
+            f"Progress: {uploaded_batches}/{total_batches}"
+        )
+    else:
+        progress_text = (
+            f"Upload Complete!\n"
+            f"Courses: {uploaded_courses}/{total_courses} ✓\n"
+            f"Batches: {uploaded_batches}/{total_batches} ✓"
+        )
     
     if progress_message is None:
         try:
@@ -460,22 +474,28 @@ async def send_progress_bar_add(total_courses, total_batches, uploaded_courses, 
         try:
             await progress_message.edit_text(progress_text)
         except BadRequest as e:
-            # Message content unchanged, ignore
             if "message is not modified" not in str(e).lower():
                 print(f"BadRequest editing progress: {e}")
         except Exception as e:
             print(f"Error editing progress bar: {e}")
 
-async def progress_updater_add(total_courses, total_batches, get_uploaded_courses, get_uploaded_batches):
+async def progress_updater_add(total_courses, total_batches, get_uploaded_courses, get_uploaded_batches, phase_tracker):
     """Update progress bar for /add every 30 seconds."""
     global progress_message
     try:
         while True:
             uploaded_courses = get_uploaded_courses()
             uploaded_batches = get_uploaded_batches()
-            if uploaded_courses >= total_courses and uploaded_batches >= total_batches:
+            current_phase = phase_tracker.get('phase', 'courses')
+            
+            # Check if completed
+            if current_phase == 'courses' and uploaded_courses >= total_courses:
+                phase_tracker['phase'] = 'batches'
+            elif current_phase == 'batches' and uploaded_batches >= total_batches:
+                phase_tracker['phase'] = 'complete'
                 break
-            await send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches)
+            
+            await send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches, current_phase)
             await asyncio.sleep(30)
     except asyncio.CancelledError:
         pass
@@ -704,7 +724,16 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         doc = educators_col.find_one({"username": username})
         return sum(1 for b in doc.get("batches", []) if b.get("msg_id") is not None)
 
-    progress_task = asyncio.create_task(progress_updater_add(total_courses, total_batches, get_uploaded_courses, get_uploaded_batches))
+    # Phase tracker for progress bar
+    phase_tracker = {'phase': 'courses'}
+    
+    progress_task = asyncio.create_task(progress_updater_add(
+        total_courses, 
+        total_batches, 
+        get_uploaded_courses, 
+        get_uploaded_batches,
+        phase_tracker
+    ))
 
     # Upload educator JSON
     educator_data = {
