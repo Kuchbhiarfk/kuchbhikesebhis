@@ -4,6 +4,7 @@ import json
 import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes
+from telegram.error import BadRequest, RetryAfter, TimedOut, NetworkError
 import re
 from datetime import datetime
 import dateutil.parser
@@ -12,7 +13,7 @@ import pymongo
 from bson import ObjectId
 
 # Telegram group ID
-SETTED_GROUP_ID = -1003133358948  # Replace with your supergroup ID
+SETTED_GROUP_ID = -1003133358948
 
 # MongoDB connection
 client = pymongo.MongoClient("mongodb+srv://elvishyadav_opm:naman1811421@cluster0.uxuplor.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
@@ -73,8 +74,8 @@ async def fetch_courses(username, limit=50, max_offset=10000):
     async with aiohttp.ClientSession() as session:
         seen_uids = set()
         offset = 0
-        consecutive_empty = 0  # Track consecutive empty responses
-        max_consecutive_empty = 10  # Stop after 3 consecutive empty responses
+        consecutive_empty = 0
+        max_consecutive_empty = 3
 
         while offset <= max_offset:
             url = f"{base_url}&offset={offset}"
@@ -94,39 +95,27 @@ async def fetch_courses(username, limit=50, max_offset=10000):
 
                     results = data.get("results")
                     if results is None or not isinstance(results, list):
-                        print(f"No valid course results for {username} at offset {offset}.")
                         consecutive_empty += 1
                         if consecutive_empty >= max_consecutive_empty:
-                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
                             break
                         offset += limit
                         await asyncio.sleep(0.1)
                         continue
 
                     if not results:
-                        print(f"No courses at offset {offset} for {username}.")
                         consecutive_empty += 1
                         if consecutive_empty >= max_consecutive_empty:
-                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
                             break
                         offset += limit
                         await asyncio.sleep(0.1)
                         continue
 
-                    # Reset consecutive empty counter if we got results
                     consecutive_empty = 0
 
-                    for i, course in enumerate(results, start=offset + 1):
+                    for course in results:
                         course_uid = course.get("uid")
                         if course_uid and course_uid not in seen_uids:
                             seen_uids.add(course_uid)
-                            print(f"{i} Course Name :- {course.get('name', 'N/A')}")
-                            print(f"Slug :- {course.get('slug', 'N/A')}")
-                            print(f"Thumbnail :- {course.get('thumbnail', 'N/A')}")
-                            print(f"Uid :- {course_uid}")
-                            print(f"Starts at :- {course.get('starts_at', 'N/A')}")
-                            print(f"Ends at :- {course.get('ends_at', 'N/A')}")
-                            print("----------------------")
                             courses.append({
                                 "name": course.get("name", "N/A"),
                                 "slug": course.get("slug", "N/A"),
@@ -141,7 +130,6 @@ async def fetch_courses(username, limit=50, max_offset=10000):
                     await asyncio.sleep(0.1)
             except aiohttp.ClientError as e:
                 print(f"Failed to fetch courses for {username} at offset {offset}: {e}")
-                # Don't break on error, try next offset
                 offset += limit
                 await asyncio.sleep(1)
                 continue
@@ -156,8 +144,8 @@ async def fetch_batches(username, limit=50, max_offset=10000):
     async with aiohttp.ClientSession() as session:
         seen_batch_uids = set()
         offset = 0
-        consecutive_empty = 0  # Track consecutive empty responses
-        max_consecutive_empty = 10  # Stop after 3 consecutive empty responses
+        consecutive_empty = 0
+        max_consecutive_empty = 3
 
         while offset <= max_offset:
             url = f"{base_url}&offset={offset}"
@@ -177,41 +165,27 @@ async def fetch_batches(username, limit=50, max_offset=10000):
 
                     results = data.get("results")
                     if results is None or not isinstance(results, list):
-                        print(f"No valid batch results for {username} at offset {offset}.")
                         consecutive_empty += 1
                         if consecutive_empty >= max_consecutive_empty:
-                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
                             break
                         offset += limit
                         await asyncio.sleep(0.1)
                         continue
 
                     if not results:
-                        print(f"No batches at offset {offset} for {username}.")
                         consecutive_empty += 1
                         if consecutive_empty >= max_consecutive_empty:
-                            print(f"Stopping after {max_consecutive_empty} consecutive empty responses")
                             break
                         offset += limit
                         await asyncio.sleep(0.1)
                         continue
 
-                    # Reset consecutive empty counter if we got results
                     consecutive_empty = 0
 
-                    for i, batch in enumerate(results, start=offset + 1):
+                    for batch in results:
                         batch_uid = batch.get("uid")
                         if batch_uid and batch_uid not in seen_batch_uids:
                             seen_batch_uids.add(batch_uid)
-                            print(f"{i} Batch Name :- {batch.get('name', 'N/A')}")
-                            print(f"Cover Photo :- {batch.get('cover_photo', 'N/A')}")
-                            print(f"Exam Type :- {batch.get('goal', {}).get('name', 'N/A')}")
-                            print(f"Uid :- {batch_uid}")
-                            print(f"Slug :- {batch.get('slug', 'N/A')}")
-                            print(f"Syllabus Tag :- {batch.get('syllabus_tag', 'N/A')}")
-                            print(f"Starts At :- {batch.get('starts_at', 'N/A')}")
-                            print(f"Completed At :- {batch.get('completed_at', 'N/A')}")
-                            print("----------------------")
                             batches.append({
                                 "name": batch.get("name", "N/A"),
                                 "cover_photo": batch.get("cover_photo", "N/A"),
@@ -228,7 +202,6 @@ async def fetch_batches(username, limit=50, max_offset=10000):
                     await asyncio.sleep(0.1)
             except aiohttp.ClientError as e:
                 print(f"Failed to fetch batches for {username} at offset {offset}: {e}")
-                # Don't break on error, try next offset
                 offset += limit
                 await asyncio.sleep(1)
                 continue
@@ -246,7 +219,6 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                 async with session.get(schedule_url, timeout=timeout) as response:
                     if response.status == 429:
                         retry_after = int(response.headers.get("Retry-After", 5))
-                        print(f"Rate limited for {item_type} schedule. Retrying after {retry_after} seconds...")
                         await asyncio.sleep(retry_after)
                         continue
                     response.raise_for_status()
@@ -254,7 +226,6 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                     results = data.get('results', [])
 
                     if not results:
-                        print(f"⚠️ No schedule results found for {item_type}")
                         return [], None
 
                     current_time = datetime.now(pytz.UTC)
@@ -278,7 +249,6 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                                 value.get("is_offline", "N/A")
                             ))
                     else:
-                        print(f"Processing batch schedule for {item_name} ({item_data.get('uid', 'N/A')}) with {len(results)} items...")
                         async def fetch_collection_item(item):
                             properties = item.get('properties', {})
                             author = properties.get('author', {})
@@ -297,7 +267,6 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                                     async with session.get(collection_url, timeout=timeout) as collection_response:
                                         if collection_response.status == 429:
                                             retry_after = int(collection_response.headers.get("Retry-After", 5))
-                                            print(f"Rate limited for batch collection {data_id}. Retrying after {retry_after} seconds...")
                                             await asyncio.sleep(retry_after)
                                             continue
                                         collection_response.raise_for_status()
@@ -306,7 +275,6 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                                         for collection_item in items:
                                             value = collection_item.get("value", {})
                                             if value.get("uid") == uid:
-                                                print(f"  Fetched collection item {uid} for {data_id}")
                                                 return fetch_unacademy_collection(
                                                     value.get("title", properties.get('name', 'N/A')),
                                                     value.get("live_class", {}).get("author", author),
@@ -316,28 +284,19 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                                                     value.get("is_offline", "N/A")
                                                 )
                                         return None
-                                except aiohttp.ClientResponseError as e:
-                                    print(f"❌ HTTP error in collection API for batch {data_id}: {e}")
-                                    return handle_collection_failure(live_at, properties.get('name', 'N/A'), author)
-                                except aiohttp.ClientTimeout:
-                                    print(f"❌ Timeout in collection API for batch {data_id}, attempt {retry + 1}/3")
+                                except:
                                     if retry < 2:
                                         await asyncio.sleep(2 ** retry)
                                         continue
-                                    print(f"❌ Failed after retries for batch {data_id}")
-                                    return handle_collection_failure(live_at, properties.get('name', 'N/A'), author)
-                                except aiohttp.ClientError as e:
-                                    print(f"❌ Error in collection API for batch {data_id}: {e}")
                                     return handle_collection_failure(live_at, properties.get('name', 'N/A'), author)
                             return None
 
                         tasks = [fetch_collection_item(item) for item in results]
                         collection_results = await asyncio.gather(*tasks, return_exceptions=True)
                         results_list.extend([r for r in collection_results if r is not None and not isinstance(r, Exception)])
-                        print(f"Completed processing batch schedule for {item_name} ({item_data.get('uid', 'N/A')})")
 
                     results_list = [r for r in results_list if r]
-                    results_list.sort(key=lambda x: x["live_at_time"] or datetime.min.replace(tzinfo=pytz.UTC), reverse=True)
+                    results_list.sort(key=lambda x: x.get("live_at_time") or datetime.min.replace(tzinfo=pytz.UTC).isoformat(), reverse=True)
 
                     teachers = ", ".join([f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() for t in item_teachers if t.get('first_name')])
                     last_checked = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -360,17 +319,10 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
 
                     return results_list, caption
 
-            except aiohttp.ClientResponseError as e:
-                print(f"❌ HTTP error in schedule API for {item_type} (attempt {attempt + 1}/20): {e}")
-                await asyncio.sleep(2 ** attempt)
-            except aiohttp.ClientTimeout:
-                print(f"❌ Timeout in schedule API for {item_type} (attempt {attempt + 1}/20)")
-                await asyncio.sleep(2 ** attempt)
-            except aiohttp.ClientError as e:
-                print(f"❌ Error in schedule API for {item_type} (attempt {attempt + 1}/20): {e}")
-                await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                print(f"Error in schedule API (attempt {attempt + 1}/20): {e}")
+                await asyncio.sleep(2 ** min(attempt, 5))
 
-        print(f"Failed to fetch schedule for {item_type} after 20 attempts.")
         return [], None
 
 def fetch_unacademy_collection(title, author, live_at, video_url, slides_pdf, is_offline):
@@ -492,112 +444,130 @@ def filter_by_time(courses, batches, current_time, future=True):
 
 async def send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches):
     """Send or update progress bar for /add command."""
-    global progress_message, update_obj, update_context
+    global progress_message, update_obj
     progress_text = (
-        "📊 *Add Command Progress*\n"
+        f"Progress Update:\n"
         f"Courses: {uploaded_courses}/{total_courses}\n"
         f"Batches: {uploaded_batches}/{total_batches}"
     )
+    
     if progress_message is None:
-        progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown")
+        try:
+            progress_message = await update_obj.message.reply_text(progress_text)
+        except Exception as e:
+            print(f"Error sending progress bar: {e}")
     else:
         try:
-            await progress_message.edit_text(progress_text, parse_mode="Markdown")
+            await progress_message.edit_text(progress_text)
+        except BadRequest as e:
+            # Message content unchanged, ignore
+            if "message is not modified" not in str(e).lower():
+                print(f"BadRequest editing progress: {e}")
         except Exception as e:
-            print(f"Error updating progress bar: {e}")
-            progress_message = await update_obj.message.reply_text(progress_text, parse_mode="Markdown")
+            print(f"Error editing progress bar: {e}")
 
 async def progress_updater_add(total_courses, total_batches, get_uploaded_courses, get_uploaded_batches):
-    """Update progress bar for /add every 2 minutes."""
+    """Update progress bar for /add every 30 seconds."""
     global progress_message
-    while True:
-        uploaded_courses = get_uploaded_courses()
-        uploaded_batches = get_uploaded_batches()
-        if uploaded_courses >= total_courses and uploaded_batches >= total_batches:
-            break
-        await send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches)
-        await asyncio.sleep(120)  # 2 minutes
+    try:
+        while True:
+            uploaded_courses = get_uploaded_courses()
+            uploaded_batches = get_uploaded_batches()
+            if uploaded_courses >= total_courses and uploaded_batches >= total_batches:
+                break
+            await send_progress_bar_add(total_courses, total_batches, uploaded_courses, uploaded_batches)
+            await asyncio.sleep(30)
+    except asyncio.CancelledError:
+        pass
 
 async def schedule_checker():
     """Check and update current batches and courses every 2 hours."""
     while True:
-        current_time = datetime.now(pytz.timezone('Asia/Kolkata'))
-        last_checked = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
-        for doc in educators_col.find():
-            for item_type, items_key, end_key in [("course", "courses", "ends_at"), ("batch", "batches", "completed_at")]:
-                for item in doc.get(items_key, []):
-                    if item.get("is_completed", False):
-                        continue
-                    end_time_str = item.get(end_key, "N/A")
-                    if end_time_str != "N/A":
-                        try:
-                            end_time = dateutil.parser.isoparse(end_time_str)
-                            if end_time <= current_time:
-                                # Mark as completed
-                                caption = item.get("caption", "")
-                                new_caption = caption + "\nNo More Check Batch/Course Completed"
-                                try:
-                                    await bot.edit_message_caption(
-                                        chat_id=SETTED_GROUP_ID,
-                                        message_id=item["msg_id"],
-                                        caption=new_caption
-                                    )
-                                    educators_col.update_one(
-                                        {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
-                                        {"$set": {f"{items_key}.$.is_completed": True, f"{items_key}.$.caption": new_caption}}
-                                    )
-                                    print(f"Marked {item_type} {item['uid']} as completed")
-                                except Exception as e:
-                                    print(f"Error editing caption for completed {item_type} {item['uid']}: {e}")
-                            else:
-                                # Re-fetch schedule
-                                print(f"Updating {item_type} {item['uid']}")
-                                schedule_url = (
-                                    f"https://api.unacademy.com/api/v1/batch/{item['uid']}/schedule/?limit=100000&offset=None&past=True&rank=100000&timezone_difference=330"
-                                    if item_type == "batch"
-                                    else f"https://unacademy.com/api/v3/collection/{item['uid']}/items?limit=10000"
-                                )
-                                results = None
-                                caption = None
-                                while results is None:
-                                    results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
-                                    if results is None:
-                                        print(f"Failed to fetch schedule for {item_type} {item['uid']}, retrying...")
-                                        await asyncio.sleep(60)  # Wait 1 min before retry
-
-                                filename = f"temp_{item_type}_{item['uid']}_schedule.json"
-                                save_to_json(filename, results)
-                                try:
-                                    await bot.delete_message(chat_id=SETTED_GROUP_ID, message_id=item["msg_id"])
-                                except Exception as e:
-                                    print(f"Error deleting old message for {item_type} {item['uid']}: {e}")
-                                try:
-                                    with open(filename, "rb") as f:
-                                        new_msg = await bot.send_document(
+        try:
+            current_time = datetime.now(pytz.timezone('Asia/Kolkata'))
+            last_checked = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+            
+            for doc in educators_col.find():
+                username = doc.get("username", "unknown")
+                
+                for item_type, items_key, end_key in [("course", "courses", "ends_at"), ("batch", "batches", "completed_at")]:
+                    for item in doc.get(items_key, []):
+                        if item.get("is_completed", False) or not item.get("msg_id"):
+                            continue
+                            
+                        end_time_str = item.get(end_key, "N/A")
+                        if end_time_str != "N/A":
+                            try:
+                                end_time = dateutil.parser.isoparse(end_time_str)
+                                if end_time <= current_time:
+                                    # Mark as completed
+                                    caption = item.get("caption", "")
+                                    new_caption = caption + "\nNo More Check Batch/Course Completed"
+                                    try:
+                                        await bot.edit_message_caption(
                                             chat_id=SETTED_GROUP_ID,
-                                            message_thread_id=doc["subtopic_msg_id"],
-                                            document=f,
-                                            caption=caption
+                                            message_id=item["msg_id"],
+                                            caption=new_caption
                                         )
-                                    new_msg_id = new_msg.message_id
-                                    educators_col.update_one(
-                                        {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
-                                        {"$set": {
-                                            f"{items_key}.$.msg_id": new_msg_id,
-                                            f"{items_key}.$.last_checked_at": last_checked,
-                                            f"{items_key}.$.caption": caption
-                                        }}
+                                        educators_col.update_one(
+                                            {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
+                                            {"$set": {f"{items_key}.$.is_completed": True, f"{items_key}.$.caption": new_caption}}
+                                        )
+                                        print(f"Marked {item_type} {item['uid']} as completed")
+                                    except Exception as e:
+                                        print(f"Error editing caption for {item_type} {item['uid']}: {e}")
+                                else:
+                                    # Re-fetch schedule
+                                    print(f"Updating {item_type} {item['uid']}")
+                                    schedule_url = (
+                                        f"https://api.unacademy.com/api/v1/batch/{item['uid']}/schedule/?limit=100000&offset=None&past=True&rank=100000&timezone_difference=330"
+                                        if item_type == "batch"
+                                        else f"https://unacademy.com/api/v3/collection/{item['uid']}/items?limit=10000"
                                     )
-                                    print(f"Updated {item_type} {item['uid']}")
-                                    await asyncio.sleep(60)  # Increased to 60-second delay per JSON upload to avoid flood
-                                except Exception as e:
-                                    print(f"Error uploading updated {item_type} {item['uid']}: {e}")
-                                finally:
-                                    if os.path.exists(filename):
-                                        os.remove(filename)
-                                        print(f"Deleted {filename}")
-                        except ValueError:
-                            print(f"Invalid end time for {item_type} {item['uid']}")
+                                    
+                                    results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
+                                    if results is None or caption is None:
+                                        print(f"Failed to fetch schedule for {item_type} {item['uid']}")
+                                        continue
+
+                                    # FIXED: Use unique filename WITHOUT temp prefix
+                                    filename = f"schedule_{username}_{item_type}_{item['uid']}_{int(datetime.now().timestamp())}.json"
+                                    save_to_json(filename, results)
+                                    
+                                    try:
+                                        await bot.delete_message(chat_id=SETTED_GROUP_ID, message_id=item["msg_id"])
+                                    except Exception as e:
+                                        print(f"Error deleting old message: {e}")
+                                    
+                                    try:
+                                        with open(filename, "rb") as f:
+                                            new_msg = await bot.send_document(
+                                                chat_id=SETTED_GROUP_ID,
+                                                message_thread_id=doc["subtopic_msg_id"],
+                                                document=f,
+                                                caption=caption
+                                            )
+                                        new_msg_id = new_msg.message_id
+                                        educators_col.update_one(
+                                            {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
+                                            {"$set": {
+                                                f"{items_key}.$.msg_id": new_msg_id,
+                                                f"{items_key}.$.last_checked_at": last_checked,
+                                                f"{items_key}.$.caption": caption
+                                            }}
+                                        )
+                                        print(f"Updated {item_type} {item['uid']}")
+                                        await asyncio.sleep(60)
+                                    except Exception as e:
+                                        print(f"Error uploading updated {item_type}: {e}")
+                                    finally:
+                                        if os.path.exists(filename):
+                                            os.remove(filename)
+                            except ValueError:
+                                print(f"Invalid end time for {item_type} {item['uid']}")
+        except Exception as e:
+            print(f"Error in schedule_checker: {e}")
+        
         await asyncio.sleep(7200)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -605,6 +575,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global update_context, update_obj, progress_message
     update_context = context
     update_obj = update
+    progress_message = None
 
     if not context.args:
         await update.message.reply_text("Please provide a username. Usage: /add {username}")
@@ -614,29 +585,25 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = normalize_username(raw_username)
     await update.message.reply_text(f"Fetching data for username: {username}...")
 
-    # Fetch educator details
     educator = await fetch_educator_by_username(username)
     if not educator:
         await update.message.reply_text(f"No educator found with username: {username}")
         return ConversationHandler.END
 
-    # Check if educator exists in DB
     educator_doc = educators_col.find_one({"username": username})
     if educator_doc:
         thread_id = educator_doc["subtopic_msg_id"]
         title = educator_doc["topic_title"]
         print(f"Educator {username} already exists with thread ID {thread_id}")
     else:
-        # Create subtopic
         title = f"{educator['first_name']} {educator['last_name']} [{raw_username}]"
         try:
             topic = await context.bot.create_forum_topic(chat_id=SETTED_GROUP_ID, name=title)
             thread_id = topic.message_thread_id
         except Exception as e:
-            await update.message.reply_text(f"Error creating topic in group: {e}. Ensure the group is a supergroup with topics enabled and bot has permissions.")
+            await update.message.reply_text(f"Error creating topic: {e}")
             return ConversationHandler.END
 
-        # Store educator in DB
         educators_col.insert_one({
             "_id": ObjectId(),
             "first_name": educator["first_name"],
@@ -651,37 +618,30 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "batches": []
         })
 
-    # Store in user_data
     context.user_data['thread_id'] = thread_id
     context.user_data['group_id'] = SETTED_GROUP_ID
     context.user_data['topic_title'] = title
 
-    # Fetch courses and batches
     print(f"Fetching courses for {username}...")
     courses = await fetch_courses(username)
     print(f"Fetching batches for {username}...")
     batches = await fetch_batches(username)
 
-    # Get current time
     current_time = datetime.now(pytz.timezone('Asia/Kolkata'))
     last_checked = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
-    # Update educator last_checked
     educators_col.update_one({"username": username}, {"$set": {"last_checked_time": last_checked}})
 
-    # Filter current and completed
     current_courses, current_batches = filter_by_time(courses, batches, current_time, future=True)
     completed_courses, completed_batches = filter_by_time(courses, batches, current_time, future=False)
 
     all_courses = current_courses + completed_courses
     all_batches = current_batches + completed_batches
 
-    # Get existing
     existing_doc = educators_col.find_one({"username": username})
     existing_course_uids = {c["uid"] for c in existing_doc.get("courses", [])}
     existing_batch_uids = {b["uid"] for b in existing_doc.get("batches", [])}
 
-    # Save new courses to MongoDB
     course_datas = []
     for course in all_courses:
         if course["uid"] in existing_course_uids:
@@ -706,7 +666,6 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if course_datas:
         educators_col.update_one({"username": username}, {"$push": {"courses": {"$each": course_datas}}})
 
-    # Save new batches to MongoDB
     batch_datas = []
     for batch in all_batches:
         if batch["uid"] in existing_batch_uids:
@@ -733,14 +692,9 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if batch_datas:
         educators_col.update_one({"username": username}, {"$push": {"batches": {"$each": batch_datas}}})
 
-    # Get updated doc
     existing_doc = educators_col.find_one({"username": username})
     total_courses = len(existing_doc.get("courses", []))
     total_batches = len(existing_doc.get("batches", []))
-
-    # Count how many have msg_id (uploaded schedules)
-    uploaded_courses = sum(1 for c in existing_doc.get("courses", []) if c.get("msg_id") is not None)
-    uploaded_batches = sum(1 for b in existing_doc.get("batches", []) if b.get("msg_id") is not None)
 
     def get_uploaded_courses():
         doc = educators_col.find_one({"username": username})
@@ -750,7 +704,6 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         doc = educators_col.find_one({"username": username})
         return sum(1 for b in doc.get("batches", []) if b.get("msg_id") is not None)
 
-    # Start progress updater
     progress_task = asyncio.create_task(progress_updater_add(total_courses, total_batches, get_uploaded_courses, get_uploaded_batches))
 
     # Upload educator JSON
@@ -764,64 +717,80 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "topic_title": title,
         "last_checked_time": last_checked
     }
-    educator_filename = f"{username}_educator.json"
+    educator_filename = f"educator_{username}_{int(datetime.now().timestamp())}.json"
     save_to_json(educator_filename, educator_data)
     try:
         with open(educator_filename, "rb") as f:
-            msg = await context.bot.send_document(
+            await context.bot.send_document(
                 chat_id=SETTED_GROUP_ID,
                 message_thread_id=thread_id,
                 document=f,
                 caption=(
-                    f"Teacher Name :- {educator['first_name']} {educator['last_name']}\n"
-                    f"Username :- {username}\n"
-                    f"Uid :- {educator['uid']}\n"
-                    f"Thumbnail :- {educator['avatar']}\n"
-                    f"Last Checked :- {last_checked}"
+                    f"Teacher Name: {educator['first_name']} {educator['last_name']}\n"
+                    f"Username: {username}\n"
+                    f"Uid: {educator['uid']}\n"
+                    f"Last Checked: {last_checked}"
                 )
             )
-        os.remove(educator_filename)
-        print(f"Deleted {educator_filename} after upload")
-        await asyncio.sleep(30)  # 30-second delay for educator JSON
+        await asyncio.sleep(30)
     except Exception as e:
-        await update.message.reply_text(f"Error uploading educator JSON: {e}")
+        print(f"Error uploading educator JSON: {e}")
+    finally:
         if os.path.exists(educator_filename):
             os.remove(educator_filename)
-            print(f"Deleted {educator_filename} due to upload error")
 
-    # Function to update item - FIXED VERSION
+    # Function to update item
     async def update_item(item, item_type):
         item_uid = item["uid"]
-        # FIXED: Proper MongoDB field names
+        item_name = item.get("name", "Unknown")
         items_field = "courses" if item_type == "course" else "batches"
         
-        # Check if already uploaded
         doc = educators_col.find_one({"username": username, f"{items_field}.uid": item_uid})
         if doc:
             for db_item in doc.get(items_field, []):
                 if db_item["uid"] == item_uid and db_item.get("msg_id") is not None:
-                    print(f"Skipping already uploaded {item_type} {item_uid}")
-                    return
+                    print(f"Skipping uploaded {item_type} {item_uid}")
+                    return True
 
-        # Fetch and upload schedule JSON
+        print(f"Processing {item_type} {item_uid} ({item_name})...")
+
         schedule_url = (
             f"https://api.unacademy.com/api/v1/batch/{item_uid}/schedule/?limit=100000&offset=None&past=True&rank=100000&timezone_difference=330"
             if item_type == "batch"
             else f"https://unacademy.com/api/v3/collection/{item_uid}/items?limit=10000"
         )
+        
         results = None
         caption = None
-        while results is None:
-            results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
-            if results is None:
-                print(f"Failed to fetch schedule for {item_type} {item_uid}, retrying...")
-                await asyncio.sleep(60)  # Wait 1 min before retry
+        fetch_attempts = 0
+        
+        while results is None and fetch_attempts < 5:
+            fetch_attempts += 1
+            try:
+                results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
+                if results is None:
+                    await asyncio.sleep(30)
+            except Exception as e:
+                print(f"Fetch error: {e}")
+                await asyncio.sleep(30)
+        
+        if results is None:
+            print(f"FAILED to fetch {item_type} {item_uid}")
+            return False
 
-        schedule_filename = f"{username}_{item_type}_{item_uid}_schedule.json"
-        save_to_json(schedule_filename, results)
+        # FIXED: Use unique filename
+        schedule_filename = f"schedule_{username}_{item_type}_{item_uid}_{int(datetime.now().timestamp())}.json"
+        try:
+            save_to_json(schedule_filename, results)
+        except Exception as e:
+            print(f"Error saving JSON: {e}")
+            return False
+
         uploaded = False
         retries = 0
-        while not uploaded and retries < 10:
+        
+        while not uploaded and retries < 5:
+            retries += 1
             try:
                 with open(schedule_filename, "rb") as f:
                     msg = await context.bot.send_document(
@@ -832,54 +801,89 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 msg_id = msg.message_id
                 uploaded = True
-                os.remove(schedule_filename)
-                print(f"Deleted {schedule_filename} after upload")
-                await asyncio.sleep(15)  # Increased to 60-second delay for schedule JSON
+                
+                educators_col.update_one(
+                    {"username": username, f"{items_field}.uid": item_uid},
+                    {"$set": {
+                        f"{items_field}.$.last_checked_at": last_checked,
+                        f"{items_field}.$.caption": caption,
+                        f"{items_field}.$.msg_id": msg_id
+                    }}
+                )
+                
+                await asyncio.sleep(20)
+                
+            except RetryAfter as e:
+                wait_time = e.retry_after + 5
+                print(f"Rate limited, waiting {wait_time}s")
+                await asyncio.sleep(wait_time)
+            except (TimedOut, NetworkError) as e:
+                print(f"Network error: {e}")
+                await asyncio.sleep(30)
             except Exception as e:
-                print(f"Error uploading {item_type} schedule {item_uid} attempt {retries + 1}: {e}")
-                retries += 1
-                await asyncio.sleep(60)  # Wait 1 min before retry
+                print(f"Upload error: {e}")
+                await asyncio.sleep(20)
 
-        if not uploaded:
+        try:
             if os.path.exists(schedule_filename):
                 os.remove(schedule_filename)
-                print(f"Deleted {schedule_filename} due to upload failure")
-            return
-
-        # Update MongoDB - FIXED
-        educators_col.update_one(
-            {"username": username, f"{items_field}.uid": item_uid},
-            {"$set": {
-                f"{items_field}.$.last_checked_at": last_checked,
-                f"{items_field}.$.caption": caption,
-                f"{items_field}.$.msg_id": msg_id
-            }}
-        )
-
-    # Update courses and batches with try except to continue on error
-    for course in all_courses:
-        try:
-            await update_item(course, "course")
-            await asyncio.sleep(1)  # Small sleep to avoid rate limits
         except Exception as e:
-            print(f"Error processing course {course['uid']}: {e}")
-    for batch in all_batches:
-        try:
-            await update_item(batch, "batch")
-            await asyncio.sleep(1)  # Small sleep to avoid rate limits
-        except Exception as e:
-            print(f"Error processing batch {batch['uid']}: {e}")
+            print(f"Could not delete file: {e}")
 
-    # Final progress bar update
+        if not uploaded:
+            print(f"FAILED to upload {item_type} {item_uid}")
+            return False
+        
+        print(f"COMPLETED {item_type} {item_uid}")
+        return True
+
+    # Process courses and batches
+    failed_courses = []
+    failed_batches = []
+    
+    print(f"\nProcessing {len(all_courses)} courses...")
+    for idx, course in enumerate(all_courses, 1):
+        try:
+            print(f"[{idx}/{len(all_courses)}] Processing course...")
+            success = await update_item(course, "course")
+            if not success:
+                failed_courses.append(course["uid"])
+            await asyncio.sleep(2)
+        except Exception as e:
+            print(f"EXCEPTION processing course {course.get('uid', 'UNKNOWN')}: {e}")
+            failed_courses.append(course["uid"])
+            await asyncio.sleep(5)
+    
+    print(f"\nProcessing {len(all_batches)} batches...")
+    for idx, batch in enumerate(all_batches, 1):
+        try:
+            print(f"[{idx}/{len(all_batches)}] Processing batch...")
+            success = await update_item(batch, "batch")
+            if not success:
+                failed_batches.append(batch["uid"])
+            await asyncio.sleep(2)
+        except Exception as e:
+            print(f"EXCEPTION processing batch {batch.get('uid', 'UNKNOWN')}: {e}")
+            failed_batches.append(batch["uid"])
+            await asyncio.sleep(5)
+    
+    if failed_courses or failed_batches:
+        failure_msg = "Some items failed:\n"
+        if failed_courses:
+            failure_msg += f"Failed Courses: {len(failed_courses)}\n"
+        if failed_batches:
+            failure_msg += f"Failed Batches: {len(failed_batches)}\n"
+        await update.message.reply_text(failure_msg)
+
     await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches())
     progress_task.cancel()
 
-    await update.message.reply_text(f"Data JSON files uploaded to group topic: {title}")
+    await update.message.reply_text(f"Upload complete! Topic: {title}")
     context.user_data['courses'] = courses
     context.user_data['batches'] = batches
     context.user_data['username'] = username
     context.user_data['last_checked'] = last_checked
-    await update.message.reply_text("What do you want to fetch?\n1. Batch\n2. Course\nReply with '1' or '2', or type 'cancel' to exit.")
+    await update.message.reply_text("What do you want to fetch?\n1. Batch\n2. Course\nReply with '1' or '2', or 'cancel' to exit.")
     return SELECT_TYPE
 
 async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -889,7 +893,7 @@ async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Operation cancelled.")
         return ConversationHandler.END
     if user_input not in ['1', '2']:
-        await update.message.reply_text("Please reply with '1' for Batch or '2' for Course, or 'cancel' to exit.")
+        await update.message.reply_text("Please reply with '1' for Batch or '2' for Course, or 'cancel'.")
         return SELECT_TYPE
     context.user_data['item_type'] = 'batch' if user_input == '1' else 'course'
     item_label = 'Batch ID' if user_input == '1' else 'Course ID'
@@ -908,10 +912,8 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     thread_id = context.user_data.get('thread_id')
     topic_title = context.user_data.get('topic_title')
 
-    # FIXED: Proper field name
     items_field = "courses" if item_type == "course" else "batches"
 
-    # Check DB for item
     doc = educators_col.find_one({"username": username, f"{items_field}.uid": item_id})
     item_data = None
     if doc:
@@ -930,25 +932,19 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if item_type == 'batch'
         else f"https://unacademy.com/api/v3/collection/{item_id}/items?limit=10000"
     )
-    results = None
-    caption = None
-    while results is None:
-        results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item_data)
-        if results is None:
-            print(f"Failed to fetch schedule for {item_type} {item_id}, retrying...")
-            await asyncio.sleep(60)  # Wait 1 min before retry
+    
+    results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item_data)
+    if results is None or caption is None:
+        await update.message.reply_text(f"Failed to fetch schedule for {item_type} ID: {item_id}")
+        return ConversationHandler.END
 
-    schedule_filename = f"{username}_{item_type}_{item_id}_schedule.json"
+    schedule_filename = f"schedule_{username}_{item_type}_{item_id}_{int(datetime.now().timestamp())}.json"
     save_to_json(schedule_filename, results)
+    
     uploaded = False
     retries = 0
     while not uploaded and retries < 10:
         try:
-            await context.bot.send_message(
-                chat_id=group_id,
-                message_thread_id=thread_id,
-                text=caption
-            )
             with open(schedule_filename, "rb") as f:
                 msg = await context.bot.send_document(
                     chat_id=group_id,
@@ -957,7 +953,6 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=caption
                 )
             new_msg_id = msg.message_id
-            # FIXED: Proper field name
             educators_col.update_one(
                 {"username": username, f"{items_field}.uid": item_id},
                 {"$set": {
@@ -967,23 +962,20 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }}
             )
             uploaded = True
-            os.remove(schedule_filename)
-            print(f"Deleted {schedule_filename} after upload")
-            await asyncio.sleep(60)  # Increased to 60-second delay for schedule JSON
+            await asyncio.sleep(30)
         except Exception as e:
-            print(f"Error uploading schedule for {item_type} {item_id} attempt {retries + 1}: {e}")
+            print(f"Error uploading: {e}")
             retries += 1
-            await asyncio.sleep(60)  # Wait 1 min before retry
+            await asyncio.sleep(30)
+
+    if os.path.exists(schedule_filename):
+        os.remove(schedule_filename)
 
     if not uploaded:
-        if os.path.exists(schedule_filename):
-            os.remove(schedule_filename)
-            print(f"Deleted {schedule_filename} due to upload failure")
-        await update.message.reply_text(f"Failed to upload schedule for {item_type} ID: {item_id} after retries")
+        await update.message.reply_text(f"Failed to upload after retries")
         return ConversationHandler.END
 
-    await update.message.reply_text(f"Schedule uploaded to group topic: {topic_title}")
-    await update.message.reply_text(f"Finished fetching details for {item_type} ID: {item_id}")
+    await update.message.reply_text(f"Schedule uploaded to: {topic_title}")
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
