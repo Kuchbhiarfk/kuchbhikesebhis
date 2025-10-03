@@ -755,7 +755,7 @@ async def schedule_checker():
             print(f"Error in schedule_checker: {e}")
         
         print(f"\nSchedule check complete. Sleeping for 2 hours...")
-        await asyncio.sleep(7200)  # 2 hours
+        await asyncio.sleep(14400)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /add command."""
@@ -1005,7 +1005,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
                 
-                await asyncio.sleep(20)
+                await asyncio.sleep(10)
                 
             except RetryAfter as e:
                 wait_time = e.retry_after + 5
@@ -1016,7 +1016,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(30)
             except Exception as e:
                 print(f"Upload error: {e}")
-                await asyncio.sleep(20)
+                await asyncio.sleep(10)
 
         try:
             if os.path.exists(schedule_filename):
