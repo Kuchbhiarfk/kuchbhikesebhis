@@ -28,6 +28,9 @@ progress_message = None
 update_context = None
 update_obj = None
 
+# Global variables for scheduler progress
+scheduler_progress_messages = {}  # {username: message_object}
+
 # Conversation states for /add
 SELECT_TYPE, ENTER_ID = range(2)
 
@@ -302,19 +305,19 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                     last_checked = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S %Z")
                     if item_type == "course":
                         caption = (
-                            f"Course Name :- {item_name}\n"
-                            f"Course Teacher :- {teachers}\n"
-                            f"Start_at :- {item_starts_at}\n"
-                            f"Ends_at :- {item_ends_at}\n"
-                            f"Last_checked_at :- {last_checked}"
+                            f"Course Name: {item_name}\n"
+                            f"Course Teacher: {teachers}\n"
+                            f"Start_at: {item_starts_at}\n"
+                            f"Ends_at: {item_ends_at}\n"
+                            f"Last_checked_at: {last_checked}"
                         )
                     else:
                         caption = (
-                            f"Batch Name :- {item_name}\n"
-                            f"Batch Teachers :- {teachers}\n"
-                            f"Start_at :- {item_starts_at}\n"
-                            f"Completed_at :- {item_ends_at}\n"
-                            f"Last_checked_at :- {last_checked}"
+                            f"Batch Name: {item_name}\n"
+                            f"Batch Teachers: {teachers}\n"
+                            f"Start_at: {item_starts_at}\n"
+                            f"Completed_at: {item_ends_at}\n"
+                            f"Last_checked_at: {last_checked}"
                         )
 
                     return results_list, caption
@@ -454,15 +457,15 @@ async def send_progress_bar_add(total_courses, total_batches, uploaded_courses, 
         )
     elif current_phase == "batches":
         progress_text = (
-            f"Phase 1: Courses Complete ✓\n"
+            f"Phase 1: Courses Complete\n"
             f"Phase 2: Uploading Batches\n"
             f"Progress: {uploaded_batches}/{total_batches}"
         )
     else:
         progress_text = (
             f"Upload Complete!\n"
-            f"Courses: {uploaded_courses}/{total_courses} ✓\n"
-            f"Batches: {uploaded_batches}/{total_batches} ✓"
+            f"Courses: {uploaded_courses}/{total_courses}\n"
+            f"Batches: {uploaded_batches}/{total_batches}"
         )
     
     if progress_message is None:
@@ -488,7 +491,6 @@ async def progress_updater_add(total_courses, total_batches, get_uploaded_course
             uploaded_batches = get_uploaded_batches()
             current_phase = phase_tracker.get('phase', 'courses')
             
-            # Check if completed
             if current_phase == 'courses' and uploaded_courses >= total_courses:
                 phase_tracker['phase'] = 'batches'
             elif current_phase == 'batches' and uploaded_batches >= total_batches:
@@ -500,95 +502,260 @@ async def progress_updater_add(total_courses, total_batches, get_uploaded_course
     except asyncio.CancelledError:
         pass
 
+async def send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, current_phase):
+    """Send or update progress bar for schedule checker in group subtopic."""
+    global scheduler_progress_messages
+    
+    if current_phase == "courses":
+        progress_text = (
+            f"Schedule Check Progress\n"
+            f"Phase 1: Checking Courses\n"
+            f"Progress: {checked_courses}/{total_courses}\n"
+            f"Batches: Pending..."
+        )
+    elif current_phase == "batches":
+        progress_text = (
+            f"Schedule Check Progress\n"
+            f"Phase 1: Courses Complete\n"
+            f"Phase 2: Checking Batches\n"
+            f"Progress: {checked_batches}/{total_batches}"
+        )
+    else:
+        progress_text = (
+            f"Schedule Check Complete!\n"
+            f"Courses Checked: {checked_courses}/{total_courses}\n"
+            f"Batches Checked: {checked_batches}/{total_batches}"
+        )
+    
+    if username not in scheduler_progress_messages or scheduler_progress_messages[username] is None:
+        try:
+            msg = await bot.send_message(
+                chat_id=SETTED_GROUP_ID,
+                message_thread_id=thread_id,
+                text=progress_text
+            )
+            scheduler_progress_messages[username] = msg
+        except Exception as e:
+            print(f"Error sending scheduler progress: {e}")
+    else:
+        try:
+            await scheduler_progress_messages[username].edit_text(progress_text)
+        except BadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                print(f"BadRequest editing scheduler progress: {e}")
+        except Exception as e:
+            print(f"Error editing scheduler progress: {e}")
+
 async def schedule_checker():
     """Check and update current batches and courses every 2 hours."""
+    global scheduler_progress_messages
+    
     while True:
         try:
             current_time = datetime.now(pytz.timezone('Asia/Kolkata'))
             last_checked = current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
             
+            print(f"\n{'='*60}")
+            print(f"Starting schedule check at {last_checked}")
+            print(f"{'='*60}\n")
+            
             for doc in educators_col.find():
                 username = doc.get("username", "unknown")
+                thread_id = doc.get("subtopic_msg_id")
                 
-                for item_type, items_key, end_key in [("course", "courses", "ends_at"), ("batch", "batches", "completed_at")]:
-                    for item in doc.get(items_key, []):
-                        if item.get("is_completed", False) or not item.get("msg_id"):
-                            continue
-                            
-                        end_time_str = item.get(end_key, "N/A")
-                        if end_time_str != "N/A":
-                            try:
+                print(f"\nChecking educator: {username}")
+                
+                # Reset progress message for this educator
+                scheduler_progress_messages[username] = None
+                
+                # Count total items to check
+                courses_to_check = [c for c in doc.get("courses", []) if not c.get("is_completed", False) and c.get("msg_id")]
+                batches_to_check = [b for b in doc.get("batches", []) if not b.get("is_completed", False) and b.get("msg_id")]
+                
+                total_courses = len(courses_to_check)
+                total_batches = len(batches_to_check)
+                checked_courses = 0
+                checked_batches = 0
+                
+                if total_courses == 0 and total_batches == 0:
+                    print(f"No items to check for {username}")
+                    continue
+                
+                # PHASE 1: Check Courses
+                if total_courses > 0:
+                    print(f"\nPhase 1: Checking {total_courses} courses...")
+                    await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "courses")
+                    
+                    for course in courses_to_check:
+                        try:
+                            end_time_str = course.get("ends_at", "N/A")
+                            if end_time_str != "N/A":
                                 end_time = dateutil.parser.isoparse(end_time_str)
+                                
                                 if end_time <= current_time:
                                     # Mark as completed
-                                    caption = item.get("caption", "")
-                                    new_caption = caption + "\nNo More Check Batch/Course Completed"
+                                    caption = course.get("caption", "")
+                                    new_caption = caption + "\n\nCourse Completed - No More Updates"
                                     try:
                                         await bot.edit_message_caption(
                                             chat_id=SETTED_GROUP_ID,
-                                            message_id=item["msg_id"],
+                                            message_id=course["msg_id"],
                                             caption=new_caption
                                         )
                                         educators_col.update_one(
-                                            {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
-                                            {"$set": {f"{items_key}.$.is_completed": True, f"{items_key}.$.caption": new_caption}}
+                                            {"_id": doc["_id"], "courses.uid": course["uid"]},
+                                            {"$set": {"courses.$.is_completed": True, "courses.$.caption": new_caption}}
                                         )
-                                        print(f"Marked {item_type} {item['uid']} as completed")
+                                        print(f"Marked course {course['uid']} as completed")
                                     except Exception as e:
-                                        print(f"Error editing caption for {item_type} {item['uid']}: {e}")
+                                        print(f"Error marking course completed: {e}")
                                 else:
-                                    # Re-fetch schedule
-                                    print(f"Updating {item_type} {item['uid']}")
-                                    schedule_url = (
-                                        f"https://api.unacademy.com/api/v1/batch/{item['uid']}/schedule/?limit=100000&offset=None&past=True&rank=100000&timezone_difference=330"
-                                        if item_type == "batch"
-                                        else f"https://unacademy.com/api/v3/collection/{item['uid']}/items?limit=10000"
-                                    )
+                                    # Re-fetch and update schedule
+                                    print(f"Updating course {course['uid']}")
+                                    schedule_url = f"https://unacademy.com/api/v3/collection/{course['uid']}/items?limit=10000"
                                     
-                                    results, caption = await fetch_unacademy_schedule(schedule_url, item_type, item)
+                                    results, caption = await fetch_unacademy_schedule(schedule_url, "course", course)
                                     if results is None or caption is None:
-                                        print(f"Failed to fetch schedule for {item_type} {item['uid']}")
+                                        print(f"Failed to fetch schedule for course {course['uid']}")
+                                        checked_courses += 1
+                                        await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "courses")
                                         continue
-
-                                    # FIXED: Use unique filename WITHOUT temp prefix
-                                    filename = f"schedule_{username}_{item_type}_{item['uid']}_{int(datetime.now().timestamp())}.json"
+                                    
+                                    # Save to temp file
+                                    filename = f"temp_schedule_{username}_course_{course['uid']}_{int(datetime.now().timestamp())}.json"
                                     save_to_json(filename, results)
                                     
                                     try:
-                                        await bot.delete_message(chat_id=SETTED_GROUP_ID, message_id=item["msg_id"])
-                                    except Exception as e:
-                                        print(f"Error deleting old message: {e}")
-                                    
-                                    try:
+                                        # Edit existing message with new file and caption
                                         with open(filename, "rb") as f:
-                                            new_msg = await bot.send_document(
+                                            await bot.edit_message_media(
                                                 chat_id=SETTED_GROUP_ID,
-                                                message_thread_id=doc["subtopic_msg_id"],
-                                                document=f,
-                                                caption=caption
+                                                message_id=course["msg_id"],
+                                                media={"type": "document", "media": f, "caption": caption}
                                             )
-                                        new_msg_id = new_msg.message_id
+                                        
+                                        # Update caption separately to ensure it's set
+                                        await bot.edit_message_caption(
+                                            chat_id=SETTED_GROUP_ID,
+                                            message_id=course["msg_id"],
+                                            caption=caption
+                                        )
+                                        
                                         educators_col.update_one(
-                                            {"_id": doc["_id"], f"{items_key}.uid": item["uid"]},
+                                            {"_id": doc["_id"], "courses.uid": course["uid"]},
                                             {"$set": {
-                                                f"{items_key}.$.msg_id": new_msg_id,
-                                                f"{items_key}.$.last_checked_at": last_checked,
-                                                f"{items_key}.$.caption": caption
+                                                "courses.$.last_checked_at": last_checked,
+                                                "courses.$.caption": caption
                                             }}
                                         )
-                                        print(f"Updated {item_type} {item['uid']}")
-                                        await asyncio.sleep(60)
+                                        print(f"Updated course {course['uid']}")
+                                        await asyncio.sleep(30)
                                     except Exception as e:
-                                        print(f"Error uploading updated {item_type}: {e}")
+                                        print(f"Error updating course {course['uid']}: {e}")
                                     finally:
                                         if os.path.exists(filename):
                                             os.remove(filename)
-                            except ValueError:
-                                print(f"Invalid end time for {item_type} {item['uid']}")
+                            
+                            checked_courses += 1
+                            await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "courses")
+                            
+                        except Exception as e:
+                            print(f"Error processing course {course.get('uid', 'UNKNOWN')}: {e}")
+                            checked_courses += 1
+                            await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "courses")
+                
+                # PHASE 2: Check Batches
+                if total_batches > 0:
+                    print(f"\nPhase 2: Checking {total_batches} batches...")
+                    await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "batches")
+                    
+                    for batch in batches_to_check:
+                        try:
+                            end_time_str = batch.get("completed_at", "N/A")
+                            if end_time_str != "N/A":
+                                end_time = dateutil.parser.isoparse(end_time_str)
+                                
+                                if end_time <= current_time:
+                                    # Mark as completed
+                                    caption = batch.get("caption", "")
+                                    new_caption = caption + "\n\nBatch Completed - No More Updates"
+                                    try:
+                                        await bot.edit_message_caption(
+                                            chat_id=SETTED_GROUP_ID,
+                                            message_id=batch["msg_id"],
+                                            caption=new_caption
+                                        )
+                                        educators_col.update_one(
+                                            {"_id": doc["_id"], "batches.uid": batch["uid"]},
+                                            {"$set": {"batches.$.is_completed": True, "batches.$.caption": new_caption}}
+                                        )
+                                        print(f"Marked batch {batch['uid']} as completed")
+                                    except Exception as e:
+                                        print(f"Error marking batch completed: {e}")
+                                else:
+                                    # Re-fetch and update schedule
+                                    print(f"Updating batch {batch['uid']}")
+                                    schedule_url = f"https://api.unacademy.com/api/v1/batch/{batch['uid']}/schedule/?limit=100000&offset=None&past=True&rank=100000&timezone_difference=330"
+                                    
+                                    results, caption = await fetch_unacademy_schedule(schedule_url, "batch", batch)
+                                    if results is None or caption is None:
+                                        print(f"Failed to fetch schedule for batch {batch['uid']}")
+                                        checked_batches += 1
+                                        await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "batches")
+                                        continue
+                                    
+                                    # Save to temp file
+                                    filename = f"temp_schedule_{username}_batch_{batch['uid']}_{int(datetime.now().timestamp())}.json"
+                                    save_to_json(filename, results)
+                                    
+                                    try:
+                                        # Edit existing message with new file and caption
+                                        with open(filename, "rb") as f:
+                                            await bot.edit_message_media(
+                                                chat_id=SETTED_GROUP_ID,
+                                                message_id=batch["msg_id"],
+                                                media={"type": "document", "media": f, "caption": caption}
+                                            )
+                                        
+                                        # Update caption separately to ensure it's set
+                                        await bot.edit_message_caption(
+                                            chat_id=SETTED_GROUP_ID,
+                                            message_id=batch["msg_id"],
+                                            caption=caption
+                                        )
+                                        
+                                        educators_col.update_one(
+                                            {"_id": doc["_id"], "batches.uid": batch["uid"]},
+                                            {"$set": {
+                                                "batches.$.last_checked_at": last_checked,
+                                                "batches.$.caption": caption
+                                            }}
+                                        )
+                                        print(f"Updated batch {batch['uid']}")
+                                        await asyncio.sleep(30)
+                                    except Exception as e:
+                                        print(f"Error updating batch {batch['uid']}: {e}")
+                                    finally:
+                                        if os.path.exists(filename):
+                                            os.remove(filename)
+                            
+                            checked_batches += 1
+                            await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "batches")
+                            
+                        except Exception as e:
+                            print(f"Error processing batch {batch.get('uid', 'UNKNOWN')}: {e}")
+                            checked_batches += 1
+                            await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "batches")
+                
+                # Final progress update
+                await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "complete")
+                print(f"Completed schedule check for {username}")
+                
         except Exception as e:
             print(f"Error in schedule_checker: {e}")
         
-        await asyncio.sleep(14400)  # 2 hours
+        print(f"\nSchedule check complete. Sleeping for 2 hours...")
+        await asyncio.sleep(7200)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /add command."""
@@ -724,7 +891,6 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         doc = educators_col.find_one({"username": username})
         return sum(1 for b in doc.get("batches", []) if b.get("msg_id") is not None)
 
-    # Phase tracker for progress bar
     phase_tracker = {'phase': 'courses'}
     
     progress_task = asyncio.create_task(progress_updater_add(
@@ -807,7 +973,6 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"FAILED to fetch {item_type} {item_uid}")
             return False
 
-        # FIXED: Use unique filename
         schedule_filename = f"schedule_{username}_{item_type}_{item_uid}_{int(datetime.now().timestamp())}.json"
         try:
             save_to_json(schedule_filename, results)
@@ -866,14 +1031,20 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"COMPLETED {item_type} {item_uid}")
         return True
 
-    # Process courses and batches
+    # Process courses and batches SEPARATELY
     failed_courses = []
     failed_batches = []
     
-    print(f"\nProcessing {len(all_courses)} courses...")
+    # PHASE 1: Upload ALL courses first
+    print(f"\n{'='*60}")
+    print(f"PHASE 1: Processing {len(all_courses)} courses...")
+    print(f"{'='*60}\n")
+    phase_tracker['phase'] = 'courses'
+    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'courses')
+    
     for idx, course in enumerate(all_courses, 1):
         try:
-            print(f"[{idx}/{len(all_courses)}] Processing course...")
+            print(f"\n[COURSE {idx}/{len(all_courses)}]")
             success = await update_item(course, "course")
             if not success:
                 failed_courses.append(course["uid"])
@@ -883,10 +1054,18 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             failed_courses.append(course["uid"])
             await asyncio.sleep(5)
     
-    print(f"\nProcessing {len(all_batches)} batches...")
+    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'courses')
+    
+    # PHASE 2: Upload ALL batches
+    print(f"\n{'='*60}")
+    print(f"PHASE 2: Processing {len(all_batches)} batches...")
+    print(f"{'='*60}\n")
+    phase_tracker['phase'] = 'batches'
+    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'batches')
+    
     for idx, batch in enumerate(all_batches, 1):
         try:
-            print(f"[{idx}/{len(all_batches)}] Processing batch...")
+            print(f"\n[BATCH {idx}/{len(all_batches)}]")
             success = await update_item(batch, "batch")
             if not success:
                 failed_batches.append(batch["uid"])
@@ -896,15 +1075,20 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             failed_batches.append(batch["uid"])
             await asyncio.sleep(5)
     
+    phase_tracker['phase'] = 'complete'
+    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'complete')
+    
     if failed_courses or failed_batches:
-        failure_msg = "Some items failed:\n"
+        failure_msg = "Some items failed to upload:\n"
         if failed_courses:
             failure_msg += f"Failed Courses: {len(failed_courses)}\n"
         if failed_batches:
             failure_msg += f"Failed Batches: {len(failed_batches)}\n"
+        print(f"\n{failure_msg}")
         await update.message.reply_text(failure_msg)
+    else:
+        await update.message.reply_text("All items uploaded successfully!")
 
-    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches())
     progress_task.cancel()
 
     await update.message.reply_text(f"Upload complete! Topic: {title}")
@@ -991,11 +1175,11 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }}
             )
             uploaded = True
-            await asyncio.sleep(15)
+            await asyncio.sleep(30)
         except Exception as e:
             print(f"Error uploading: {e}")
             retries += 1
-            await asyncio.sleep(15)
+            await asyncio.sleep(30)
 
     if os.path.exists(schedule_filename):
         os.remove(schedule_filename)
