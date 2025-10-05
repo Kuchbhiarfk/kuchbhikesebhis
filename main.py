@@ -527,19 +527,22 @@ async def send_scheduler_progress(username, thread_id, total_courses, total_batc
             f"Batches Checked: {checked_batches}/{total_batches}"
         )
     
-    if username not in scheduler_progress_messages or scheduler_progress_messages[username] is None:
+    # Create unique key for this educator
+    progress_key = f"{username}_{thread_id}"
+    
+    if progress_key not in scheduler_progress_messages or scheduler_progress_messages[progress_key] is None:
         try:
             msg = await bot.send_message(
                 chat_id=SETTED_GROUP_ID,
                 message_thread_id=thread_id,
                 text=progress_text
             )
-            scheduler_progress_messages[username] = msg
+            scheduler_progress_messages[progress_key] = msg
         except Exception as e:
             print(f"Error sending scheduler progress: {e}")
     else:
         try:
-            await scheduler_progress_messages[username].edit_text(progress_text)
+            await scheduler_progress_messages[progress_key].edit_text(progress_text)
         except BadRequest as e:
             if "message is not modified" not in str(e).lower():
                 print(f"BadRequest editing scheduler progress: {e}")
@@ -565,8 +568,9 @@ async def schedule_checker():
                 
                 print(f"\nChecking educator: {username}")
                 
-                # Reset progress message for this educator
-                scheduler_progress_messages[username] = None
+                # Reset progress message for this educator - FIXED
+                progress_key = f"{username}_{thread_id}"
+                scheduler_progress_messages[progress_key] = None
                 
                 # Count total items to check
                 courses_to_check = [c for c in doc.get("courses", []) if not c.get("is_completed", False) and c.get("msg_id")]
@@ -626,29 +630,37 @@ async def schedule_checker():
                                     save_to_json(filename, results)
                                     
                                     try:
-                                        # Edit existing message with new file and caption
-                                        with open(filename, "rb") as f:
-                                            await bot.edit_message_media(
+                                        # DELETE old message
+                                        try:
+                                            await bot.delete_message(
                                                 chat_id=SETTED_GROUP_ID,
-                                                message_id=course["msg_id"],
-                                                media={"type": "document", "media": f, "caption": caption}
+                                                message_id=course["msg_id"]
+                                            )
+                                            print(f"Deleted old message for course {course['uid']}")
+                                        except Exception as e:
+                                            print(f"Error deleting old message: {e}")
+                                        
+                                        # UPLOAD new message
+                                        with open(filename, "rb") as f:
+                                            new_msg = await bot.send_document(
+                                                chat_id=SETTED_GROUP_ID,
+                                                message_thread_id=thread_id,
+                                                document=f,
+                                                caption=caption
                                             )
                                         
-                                        # Update caption separately to ensure it's set
-                                        await bot.edit_message_caption(
-                                            chat_id=SETTED_GROUP_ID,
-                                            message_id=course["msg_id"],
-                                            caption=caption
-                                        )
+                                        new_msg_id = new_msg.message_id
                                         
+                                        # Update MongoDB with NEW msg_id
                                         educators_col.update_one(
                                             {"_id": doc["_id"], "courses.uid": course["uid"]},
                                             {"$set": {
+                                                "courses.$.msg_id": new_msg_id,
                                                 "courses.$.last_checked_at": last_checked,
                                                 "courses.$.caption": caption
                                             }}
                                         )
-                                        print(f"Updated course {course['uid']}")
+                                        print(f"Updated course {course['uid']} with new msg_id {new_msg_id}")
                                         await asyncio.sleep(30)
                                     except Exception as e:
                                         print(f"Error updating course {course['uid']}: {e}")
@@ -709,29 +721,37 @@ async def schedule_checker():
                                     save_to_json(filename, results)
                                     
                                     try:
-                                        # Edit existing message with new file and caption
-                                        with open(filename, "rb") as f:
-                                            await bot.edit_message_media(
+                                        # DELETE old message
+                                        try:
+                                            await bot.delete_message(
                                                 chat_id=SETTED_GROUP_ID,
-                                                message_id=batch["msg_id"],
-                                                media={"type": "document", "media": f, "caption": caption}
+                                                message_id=batch["msg_id"]
+                                            )
+                                            print(f"Deleted old message for batch {batch['uid']}")
+                                        except Exception as e:
+                                            print(f"Error deleting old message: {e}")
+                                        
+                                        # UPLOAD new message
+                                        with open(filename, "rb") as f:
+                                            new_msg = await bot.send_document(
+                                                chat_id=SETTED_GROUP_ID,
+                                                message_thread_id=thread_id,
+                                                document=f,
+                                                caption=caption
                                             )
                                         
-                                        # Update caption separately to ensure it's set
-                                        await bot.edit_message_caption(
-                                            chat_id=SETTED_GROUP_ID,
-                                            message_id=batch["msg_id"],
-                                            caption=caption
-                                        )
+                                        new_msg_id = new_msg.message_id
                                         
+                                        # Update MongoDB with NEW msg_id
                                         educators_col.update_one(
                                             {"_id": doc["_id"], "batches.uid": batch["uid"]},
                                             {"$set": {
+                                                "batches.$.msg_id": new_msg_id,
                                                 "batches.$.last_checked_at": last_checked,
                                                 "batches.$.caption": caption
                                             }}
                                         )
-                                        print(f"Updated batch {batch['uid']}")
+                                        print(f"Updated batch {batch['uid']} with new msg_id {new_msg_id}")
                                         await asyncio.sleep(30)
                                     except Exception as e:
                                         print(f"Error updating batch {batch['uid']}: {e}")
@@ -755,7 +775,7 @@ async def schedule_checker():
             print(f"Error in schedule_checker: {e}")
         
         print(f"\nSchedule check complete. Sleeping for 2 hours...")
-        await asyncio.sleep(14400)  # 2 hours
+        await asyncio.sleep(7200)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the /add command."""
@@ -798,6 +818,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "username": username,
             "uid": educator["uid"],
             "avatar": educator["avatar"],
+            "group_id": SETTED_GROUP_ID,
             "subtopic_msg_id": thread_id,
             "topic_title": title,
             "last_checked_time": None,
@@ -841,6 +862,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "thumbnail": course.get("thumbnail", "N/A"),
             "starts_at": course.get("starts_at", "N/A"),
             "ends_at": course.get("ends_at", "N/A"),
+            "group_id": SETTED_GROUP_ID,
             "last_checked_at": None,
             "msg_id": None,
             "caption": None,
@@ -867,6 +889,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "syllabus_tag": batch.get("syllabus_tag", "N/A"),
             "starts_at": batch.get("starts_at", "N/A"),
             "completed_at": batch.get("completed_at", "N/A"),
+            "group_id": SETTED_GROUP_ID,
             "last_checked_at": None,
             "msg_id": None,
             "caption": None,
@@ -908,6 +931,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "last_name": educator["last_name"],
         "uid": educator["uid"],
         "avatar": educator["avatar"],
+        "group_id": SETTED_GROUP_ID,
         "subtopic_msg_id": thread_id,
         "topic_title": title,
         "last_checked_time": last_checked
@@ -1005,7 +1029,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
                 
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
                 
             except RetryAfter as e:
                 wait_time = e.retry_after + 5
@@ -1016,7 +1040,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(30)
             except Exception as e:
                 print(f"Upload error: {e}")
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
 
         try:
             if os.path.exists(schedule_filename):
