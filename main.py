@@ -36,9 +36,13 @@ scheduler_progress_messages = {}  # {username: message_object}
 SELECT_TYPE, ENTER_ID = range(2)
 
 def save_to_json(filename, data):
-    """Save data to a JSON file."""
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    """Save data to a JSON file with minimal memory footprint."""
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving JSON {filename}: {e}")
+        raise
 
 async def fetch_educator_by_username(username):
     """Fetch educator details by username from course API."""
@@ -848,10 +852,16 @@ async def schedule_checker():
                 await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "complete")
                 print(f"Completed schedule check for {username}")
                 
+                # Cleanup memory after processing each educator
+                gc.collect()
+                print(f"✓ Memory cleanup after {username}")
+                
         except Exception as e:
             print(f"Error in schedule_checker: {e}")
         
-        print(f"\nSchedule check complete. Sleeping for 2 hours...")
+        # Final cleanup before sleep
+        gc.collect()
+        print(f"\nSchedule check complete. Memory cleaned. Sleeping for 2 hours...")
         await asyncio.sleep(7200)  # 2 hours
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1114,7 +1124,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
                 
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
                 
             except RetryAfter as e:
                 wait_time = e.retry_after + 5
@@ -1125,7 +1135,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(30)
             except Exception as e:
                 print(f"Upload error: {e}")
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
 
         # ALWAYS delete file and clear memory
         try:
@@ -1207,22 +1217,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Clear batches list from memory
     all_batches.clear()
-    gc.collect()rse.get('uid', 'UNKNOWN')}: {e}")
-            failed_courses.append(course["uid"])
-            await asyncio.sleep(5)
-    
-    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'courses')
-    
-    # PHASE 2: Upload ALL batches
-    print(f"\n{'='*60}")
-    print(f"PHASE 2: Processing {len(all_batches)} batches...")
-    print(f"{'='*60}\n")
-    phase_tracker['phase'] = 'batches'
-    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'batches')
-    
-    for idx, batch in enumerate(all_batches, 1):
-        try:
-            print(f"\n[BATCH {idx}/{len(all_batches)}]")
+    gc.collect()batches)}]")
             success = await update_item(batch, "batch")
             if not success:
                 failed_batches.append(batch["uid"])
