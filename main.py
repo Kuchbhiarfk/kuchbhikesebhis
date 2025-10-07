@@ -582,7 +582,7 @@ async def schedule_checker():
                 checked_batches = 0
                 
                 if total_courses == 0 and total_batches == 0:
-                    print(f"No items to check for {username}")
+                    print(f"No active items to check for {username}")
                     continue
                 
                 # PHASE 1: Check Courses
@@ -594,9 +594,32 @@ async def schedule_checker():
                         try:
                             end_time_str = course.get("ends_at", "N/A")
                             if end_time_str != "N/A":
-                                end_time = dateutil.parser.isoparse(end_time_str)
+                                try:
+                                    end_time = dateutil.parser.isoparse(end_time_str)
+                                except ValueError:
+                                    print(f"Invalid end_time for course {course['uid']}")
+                                    checked_courses += 1
+                                    continue
                                 
-                                if end_time <= current_time:
+                                # Check if course has ended (current_time > end_time)
+                                if current_time > end_time:
+                                    # Mark as completed
+                                    caption = course.get("caption", "")
+                                    new_caption = caption + "\n\n✓ Course Completed - No More Updates"
+                                    try:
+                                        await bot.edit_message_caption(
+                                            chat_id=SETTED_GROUP_ID,
+                                            message_id=course["msg_id"],
+                                            caption=new_caption
+                                        )
+                                        educators_col.update_one(
+                                            {"_id": doc["_id"], "courses.uid": course["uid"]},
+                                            {"$set": {"courses.$.is_completed": True, "courses.$.caption": new_caption}}
+                                        )
+                                        print(f"✓ Marked course {course['uid']} as completed (ended on {end_time})")
+                                    except Exception as e:
+                                        print(f"Error marking course completed: {e}")
+                                else:
                                     # Mark as completed
                                     caption = course.get("caption", "")
                                     new_caption = caption + "\n\nCourse Completed - No More Updates"
@@ -629,16 +652,20 @@ async def schedule_checker():
                                     filename = f"temp_schedule_{username}_course_{course['uid']}_{int(datetime.now().timestamp())}.json"
                                     save_to_json(filename, results)
                                     
+                                    new_msg_id = None
                                     try:
-                                        # DELETE old message
-                                        try:
-                                            await bot.delete_message(
-                                                chat_id=SETTED_GROUP_ID,
-                                                message_id=course["msg_id"]
-                                            )
-                                            print(f"Deleted old message for course {course['uid']}")
-                                        except Exception as e:
-                                            print(f"Error deleting old message: {e}")
+                                        # DELETE old message first
+                                        old_msg_id = course.get("msg_id")
+                                        if old_msg_id:
+                                            try:
+                                                await bot.delete_message(
+                                                    chat_id=SETTED_GROUP_ID,
+                                                    message_id=old_msg_id
+                                                )
+                                                print(f"✓ Deleted old message {old_msg_id} for course {course['uid']}")
+                                                await asyncio.sleep(2)
+                                            except Exception as e:
+                                                print(f"Error deleting old message {old_msg_id}: {e}")
                                         
                                         # UPLOAD new message
                                         with open(filename, "rb") as f:
@@ -649,7 +676,11 @@ async def schedule_checker():
                                                 caption=caption
                                             )
                                         
-                                        new_msg_id = new_msg.message_id
+                                        # IMPORTANT: Use the actual message_id from the response
+                                        new_msg_id = new_msg.id if hasattr(new_msg, 'id') else new_msg.message_id
+                                        print(f"✓ Uploaded new message {new_msg_id} for course {course['uid']}")
+                                        print(f"  Message object type: {type(new_msg)}")
+                                        print(f"  Message ID attribute: message_id={getattr(new_msg, 'message_id', 'N/A')}, id={getattr(new_msg, 'id', 'N/A')}")
                                         
                                         # Update MongoDB with NEW msg_id
                                         educators_col.update_one(
@@ -660,10 +691,12 @@ async def schedule_checker():
                                                 "courses.$.caption": caption
                                             }}
                                         )
-                                        print(f"Updated course {course['uid']} with new msg_id {new_msg_id}")
+                                        print(f"✓ MongoDB updated: course {course['uid']} -> msg_id {new_msg_id}")
                                         await asyncio.sleep(30)
                                     except Exception as e:
-                                        print(f"Error updating course {course['uid']}: {e}")
+                                        print(f"❌ Error updating course {course['uid']}: {e}")
+                                        import traceback
+                                        traceback.print_exc()
                                     finally:
                                         if os.path.exists(filename):
                                             os.remove(filename)
@@ -685,9 +718,32 @@ async def schedule_checker():
                         try:
                             end_time_str = batch.get("completed_at", "N/A")
                             if end_time_str != "N/A":
-                                end_time = dateutil.parser.isoparse(end_time_str)
+                                try:
+                                    end_time = dateutil.parser.isoparse(end_time_str)
+                                except ValueError:
+                                    print(f"Invalid completed_at for batch {batch['uid']}")
+                                    checked_batches += 1
+                                    continue
                                 
-                                if end_time <= current_time:
+                                # Check if batch has ended (current_time > completed_at)
+                                if current_time > end_time:
+                                    # Mark as completed
+                                    caption = batch.get("caption", "")
+                                    new_caption = caption + "\n\n✓ Batch Completed - No More Updates"
+                                    try:
+                                        await bot.edit_message_caption(
+                                            chat_id=SETTED_GROUP_ID,
+                                            message_id=batch["msg_id"],
+                                            caption=new_caption
+                                        )
+                                        educators_col.update_one(
+                                            {"_id": doc["_id"], "batches.uid": batch["uid"]},
+                                            {"$set": {"batches.$.is_completed": True, "batches.$.caption": new_caption}}
+                                        )
+                                        print(f"✓ Marked batch {batch['uid']} as completed (ended on {end_time})")
+                                    except Exception as e:
+                                        print(f"Error marking batch completed: {e}")
+                                else:
                                     # Mark as completed
                                     caption = batch.get("caption", "")
                                     new_caption = caption + "\n\nBatch Completed - No More Updates"
