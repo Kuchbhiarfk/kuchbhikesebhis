@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import json
 import os
+import gc  # Import garbage collector
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes
 from telegram.error import BadRequest, RetryAfter, TimedOut, NetworkError
@@ -299,6 +300,8 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                         results_list.extend([r for r in collection_results if r is not None and not isinstance(r, Exception)])
 
                     results_list = [r for r in results_list if r]
+                    
+                    # Sort in-place to save memory
                     results_list.sort(key=lambda x: x.get("live_at_time") or datetime.min.replace(tzinfo=pytz.UTC).isoformat(), reverse=True)
 
                     teachers = ", ".join([f"{t.get('first_name', '')} {t.get('last_name', '')}".strip() for t in item_teachers if t.get('first_name')])
@@ -320,6 +323,10 @@ async def fetch_unacademy_schedule(schedule_url, item_type, item_data):
                             f"Last_checked_at: {last_checked}"
                         )
 
+                    # Clear unnecessary data from memory
+                    del data
+                    del results
+                    
                     return results_list, caption
 
             except Exception as e:
@@ -700,6 +707,20 @@ async def schedule_checker():
                                     finally:
                                         if os.path.exists(filename):
                                             os.remove(filename)
+                                            print(f"✓ Deleted temp file {filename}")
+                                        
+                                        # Clear data from memory
+                                        if 'results' in locals():
+                                            del results
+                                        if 'caption' in locals():
+                                            del caption
+                                            print(f"✓ Deleted temp file {filename}")
+                                        
+                                        # Clear data from memory
+                                        if 'results' in locals():
+                                            del results
+                                        if 'caption' in locals():
+                                            del caption
                             
                             checked_courses += 1
                             await send_scheduler_progress(username, thread_id, total_courses, total_batches, checked_courses, checked_batches, "courses")
@@ -1007,12 +1028,18 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"Last Checked: {last_checked}"
                 )
             )
-        await asyncio.sleep(30)
+        print(f"✓ Educator JSON uploaded")
+        await asyncio.sleep(10)
     except Exception as e:
         print(f"Error uploading educator JSON: {e}")
     finally:
+        # ALWAYS delete file immediately after upload
         if os.path.exists(educator_filename):
             os.remove(educator_filename)
+            print(f"✓ Deleted {educator_filename}")
+        
+        # Clear educator_data from memory
+        del educator_data
 
     # Function to update item
     async def update_item(item, item_type):
@@ -1058,6 +1085,8 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_to_json(schedule_filename, results)
         except Exception as e:
             print(f"Error saving JSON: {e}")
+            # Clear results from memory before returning
+            del results
             return False
 
         uploaded = False
@@ -1085,7 +1114,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
                 
-                await asyncio.sleep(20)
+                await asyncio.sleep(10)
                 
             except RetryAfter as e:
                 wait_time = e.retry_after + 5
@@ -1096,13 +1125,20 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(30)
             except Exception as e:
                 print(f"Upload error: {e}")
-                await asyncio.sleep(20)
+                await asyncio.sleep(10)
 
+        # ALWAYS delete file and clear memory
         try:
             if os.path.exists(schedule_filename):
                 os.remove(schedule_filename)
+                print(f"✓ Deleted {schedule_filename}")
         except Exception as e:
             print(f"Could not delete file: {e}")
+        
+        # Clear results from memory
+        del results
+        if 'caption' in locals():
+            del caption
 
         if not uploaded:
             print(f"FAILED to upload {item_type} {item_uid}")
@@ -1129,8 +1165,49 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not success:
                 failed_courses.append(course["uid"])
             await asyncio.sleep(2)
+            
+            # Force garbage collection every 10 items
+            if idx % 10 == 0:
+                gc.collect()
+                print(f"✓ Memory cleanup at course {idx}")
         except Exception as e:
             print(f"EXCEPTION processing course {course.get('uid', 'UNKNOWN')}: {e}")
+            failed_courses.append(course["uid"])
+            await asyncio.sleep(5)
+    
+    # Clear courses list from memory
+    all_courses.clear()
+    gc.collect()
+    
+    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'courses')
+    
+    # PHASE 2: Upload ALL batches
+    print(f"\n{'='*60}")
+    print(f"PHASE 2: Processing {len(all_batches)} batches...")
+    print(f"{'='*60}\n")
+    phase_tracker['phase'] = 'batches'
+    await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'batches')
+    
+    for idx, batch in enumerate(all_batches, 1):
+        try:
+            print(f"\n[BATCH {idx}/{len(all_batches)}]")
+            success = await update_item(batch, "batch")
+            if not success:
+                failed_batches.append(batch["uid"])
+            await asyncio.sleep(2)
+            
+            # Force garbage collection every 10 items
+            if idx % 10 == 0:
+                gc.collect()
+                print(f"✓ Memory cleanup at batch {idx}")
+        except Exception as e:
+            print(f"EXCEPTION processing batch {batch.get('uid', 'UNKNOWN')}: {e}")
+            failed_batches.append(batch["uid"])
+            await asyncio.sleep(5)
+    
+    # Clear batches list from memory
+    all_batches.clear()
+    gc.collect()rse.get('uid', 'UNKNOWN')}: {e}")
             failed_courses.append(course["uid"])
             await asyncio.sleep(5)
     
@@ -1261,8 +1338,15 @@ async def enter_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             retries += 1
             await asyncio.sleep(30)
 
+    # ALWAYS delete file and clear memory
     if os.path.exists(schedule_filename):
         os.remove(schedule_filename)
+        print(f"✓ Deleted {schedule_filename}")
+    
+    # Clear data from memory
+    del results
+    if 'caption' in locals():
+        del caption
 
     if not uploaded:
         await update.message.reply_text(f"Failed to upload after retries")
