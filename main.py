@@ -1217,7 +1217,7 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Clear batches list from memory
     all_batches.clear()
-    gc.collect()batches)}]")
+    gc.collect()
             success = await update_item(batch, "batch")
             if not success:
                 failed_batches.append(batch["uid"])
