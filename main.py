@@ -579,7 +579,7 @@ async def schedule_checker():
                 
                 print(f"\nChecking educator: {username}")
                 
-                # Reset progress message for this educator - FIXED
+                # Reset progress message for this educator
                 progress_key = f"{username}_{thread_id}"
                 scheduler_progress_messages[progress_key] = None
                 
@@ -631,23 +631,6 @@ async def schedule_checker():
                                     except Exception as e:
                                         print(f"Error marking course completed: {e}")
                                 else:
-                                    # Mark as completed
-                                    caption = course.get("caption", "")
-                                    new_caption = caption + "\n\nCourse Completed - No More Updates"
-                                    try:
-                                        await bot.edit_message_caption(
-                                            chat_id=SETTED_GROUP_ID,
-                                            message_id=course["msg_id"],
-                                            caption=new_caption
-                                        )
-                                        educators_col.update_one(
-                                            {"_id": doc["_id"], "courses.uid": course["uid"]},
-                                            {"$set": {"courses.$.is_completed": True, "courses.$.caption": new_caption}}
-                                        )
-                                        print(f"Marked course {course['uid']} as completed")
-                                    except Exception as e:
-                                        print(f"Error marking course completed: {e}")
-                                else:
                                     # Re-fetch and update schedule
                                     print(f"Updating course {course['uid']}")
                                     schedule_url = f"https://unacademy.com/api/v3/collection/{course['uid']}/items?limit=10000"
@@ -687,11 +670,9 @@ async def schedule_checker():
                                                 caption=caption
                                             )
                                         
-                                        # IMPORTANT: Use the actual message_id from the response
+                                        # Use the actual message_id from the response
                                         new_msg_id = new_msg.id if hasattr(new_msg, 'id') else new_msg.message_id
                                         print(f"✓ Uploaded new message {new_msg_id} for course {course['uid']}")
-                                        print(f"  Message object type: {type(new_msg)}")
-                                        print(f"  Message ID attribute: message_id={getattr(new_msg, 'message_id', 'N/A')}, id={getattr(new_msg, 'id', 'N/A')}")
                                         
                                         # Update MongoDB with NEW msg_id
                                         educators_col.update_one(
@@ -711,13 +692,6 @@ async def schedule_checker():
                                     finally:
                                         if os.path.exists(filename):
                                             os.remove(filename)
-                                            print(f"✓ Deleted temp file {filename}")
-                                        
-                                        # Clear data from memory
-                                        if 'results' in locals():
-                                            del results
-                                        if 'caption' in locals():
-                                            del caption
                                             print(f"✓ Deleted temp file {filename}")
                                         
                                         # Clear data from memory
@@ -766,23 +740,6 @@ async def schedule_checker():
                                             {"$set": {"batches.$.is_completed": True, "batches.$.caption": new_caption}}
                                         )
                                         print(f"✓ Marked batch {batch['uid']} as completed (ended on {end_time})")
-                                    except Exception as e:
-                                        print(f"Error marking batch completed: {e}")
-                                else:
-                                    # Mark as completed
-                                    caption = batch.get("caption", "")
-                                    new_caption = caption + "\n\nBatch Completed - No More Updates"
-                                    try:
-                                        await bot.edit_message_caption(
-                                            chat_id=SETTED_GROUP_ID,
-                                            message_id=batch["msg_id"],
-                                            caption=new_caption
-                                        )
-                                        educators_col.update_one(
-                                            {"_id": doc["_id"], "batches.uid": batch["uid"]},
-                                            {"$set": {"batches.$.is_completed": True, "batches.$.caption": new_caption}}
-                                        )
-                                        print(f"Marked batch {batch['uid']} as completed")
                                     except Exception as e:
                                         print(f"Error marking batch completed: {e}")
                                 else:
@@ -1218,14 +1175,6 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Clear batches list from memory
     all_batches.clear()
     gc.collect()
-            success = await update_item(batch, "batch")
-            if not success:
-                failed_batches.append(batch["uid"])
-            await asyncio.sleep(2)
-        except Exception as e:
-            print(f"EXCEPTION processing batch {batch.get('uid', 'UNKNOWN')}: {e}")
-            failed_batches.append(batch["uid"])
-            await asyncio.sleep(5)
     
     phase_tracker['phase'] = 'complete'
     await send_progress_bar_add(total_courses, total_batches, get_uploaded_courses(), get_uploaded_batches(), 'complete')
