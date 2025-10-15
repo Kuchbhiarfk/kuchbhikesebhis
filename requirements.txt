@@ -19,3 +19,4 @@ asyncio
 aiofiles
 ijson
 python-dateutil
+firebase_admin
