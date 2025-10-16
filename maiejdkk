@@ -18,19 +18,6 @@ from io import BytesIO
 SETTED_GROUP_ID = -1003133358948
 
 # Initialize Firebase
-cred = credentials.Certificate({
-  "type": "service_account",
-  "project_id": "my-chunacademy-database",
-  "private_key_id": "032481e0871375f676b6780a9a1ecba3f6d17d62",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQChpa3go7EQZSVU\ntLCCk2tGety6IfrEIiqLhY7rM4RZCeo5o5snEurGYqdMg+3XanU8CDqDpNNhNoY1\naMLmNZoPe5kiLD9GuvxJObEh8+oVJAL8lZtO5jpsqZTAgo5JYpUbn1FiNLWLh3bO\ncQsCd8SAv+LryFvcnBRPQHm2IVTD6HrzAB4WOx9VNiJzU5PtJeROehL1aGTKB+e+\nLVIK+tw+2tE4hN7tZZ9jcZO4H2c6PcHfc0O373T8I7nJNcA/goAPivozW1b2Vm4m\nA11CEyX+dopSjdje+vWPN027upSHJ8LdpwHrCMaQAL7QgM3ApUhtA9rn+8gJcrao\nZwMiL7t5AgMBAAECggEADKQNLeT/Ir4WJkKfDwcCO5e+DRw9JPtbAmAmZgQ4VFIv\nK+S8bFjRXUQ3uwcSIWdk1ZX7JXJNSWvfIOwZWbFVY+KRfhehtyFGO1+0l2ggpRiU\n1zXH2GqupPK5/Df5comwCWHzFk/y5n9obgpvBvlgt4TJ9RBNBrp56Bytp+2BWHSE\n3w/dOzJFy5zz1Egf6YOXZdgsa2C6dT5TPKIaOX/Lx1nkR4u5kBjGBNImDfegmG4K\nY1pH6vyvJ2NQV1QiZ6xh8JHLeJNzEax+clsq9dbw24Qz6Zub4pjLDUEmkD48v7OF\n/Spz1kVh78cyjsLG4Q+QflCQFUU++ix8qUoMzB8fRQKBgQDOaKI1GictvRXTogaL\nq9OOI2K0NcY6EeLKd+pYyQ46c1GRitcOX2FOnUhW2ZThiphOKxP0JA/cbQH8N9sV\nrEKnI+CEWI18X6saJH2SJILT2aEhxMsqVXQHCbOuDtPSA78NuPbPtbeVZDV60h/Z\nr1NKXOIyoAxy/iYAJtkeYrmKzwKBgQDIe/Gze+C+f/ZgcExF9oT91TJUoYFoNe7X\n5PCPrjex3zu+LtpEDQaoTxGqwZXVQWwRLl6l4USKUcSx5aXn+Y9jlmmSW7twiTRJ\n0smcgrhMBujq/GBaaLmmVvMS8XHGQ0IPkg80BTQCm8cnH7q71KhHzAuPHSkDc+yd\ncRW04tTHNwKBgQC45C9Qo+Gube7sSPnWCQ+TBg13Yaf0AmuFc88ewtKU9xF87sJf\nJH8UnXzcF0Dum2h8tMfF7LusdpTNqfb8vfZio5eM1Ym/fC7XVxKIY14xiIN2rUJT\n5IHvf/hMlQmW2TY9g47KVnthPYdOQoS3SP6x4OvZ71XXd+LwRdw9BLAxLwKBgQCN\nLjMkCL1YiXYvrYUY06QNuD/MNzuQ7kH2yOLa232fBavlnsrXlzCz/5JaZB6mYX6/\njp7aQ4tnuHNCL40okaZ3I+nORkj107j9r7GIRMmRyF/ncrhLkmoCCEL+eQZ87sor\neti38l4Q5DBXjdGLChNDFB6jto42P0FGEeeOTRo3+wKBgBb4MiTi6r5PNO3ZNF4D\nlHRuvtKFxUSMNfch41tB+OEXp1u9O2Mu4GyziKlMY2awILq6x5CkE6u2k/5R3N5W\neTCXrFk+imnZEy9McBFHIibWyQP4qVnjTm66jwAPwQQbVUTf+Wx2ZUrzmy+NCKyF\nnVQxNaTAdRTl1faZY7cGWBb3\n-----END PRIVATE KEY-----\n",
-  "client_email": "firebase-adminsdk-fbsvc@my-chunacademy-database.iam.gserviceaccount.com",
-  "client_id": "110340967495752945247",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40my-chunacademy-database.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
-})
 
 firebase_admin.initialize_app(cred)
 db = firestore.client()
