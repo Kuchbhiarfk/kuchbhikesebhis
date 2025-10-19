@@ -485,7 +485,7 @@ async def cancel(update: Update, context):
 
 async def main():
     global bot
-    bot_token = '7213717609:AAFeIOkjjXBB6bHnz0CmWtrIKxh7wp3OYbE'
+    bot_token = '7213717609:AAF7aPoR0Hfn7m5vDxsgyeNHfdlY08lv_Hg'
     application = Application.builder().token(bot_token).build()
     bot = application.bot
 
