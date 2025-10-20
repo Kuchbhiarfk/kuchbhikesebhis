@@ -1132,7 +1132,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def main():
     """Start bot with MULTIPLE handlers"""
     global bot
-    bot_token = '7213717609:AAFeIOkjjXBB6bHnz0CmWtrIKxh7wp3OYbE'
+    bot_token = '7213717609:AAGAuuDNX_EEMZfF2D_Zoz-vDoQizBxW96I'
     application = Application.builder().token(bot_token).build()
     bot = application.bot
 
