@@ -1902,7 +1902,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def main():
     """Start the Telegram bot."""
     global bot
-    bot_token = '7213717609:AAGEyAJSfMUderWqlIAJkziRcIBrVTwjbXM'
+    bot_token = '8274666293:AAG12mI2cysuUlaj2YoybazteO4TZwVqMQ0'
     application = Application.builder().token(bot_token).build()
     bot = application.bot
 
